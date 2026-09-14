@@ -38,6 +38,9 @@
 #include "system/runstate.h"
 #include "hw/qdev-properties.h"
 #include "block/block_int-io.h"
+#define QEMU_HOST_INTERNAL
+#include "qemu/qemu-host.h"
+#undef QEMU_HOST_INTERNAL
 
 #define TYPE_XBOX_SMC "smbus-xbox-smc"
 #define XBOX_SMC(obj) OBJECT_CHECK(SMBusSMCDevice, (obj), TYPE_XBOX_SMC)
@@ -363,12 +366,19 @@ void xbox_smc_update_tray_state(void)
         smc->traystate_reg = SMC_REG_TRAYSTATE_OPEN;
         smc->intstatus_reg |= SMC_REG_INTSTATUS_TRAYOPENING;
     } else {
-        BlockDriverState *bs = blk_bs(blk);
-        smc->traystate_reg = (bs && bs->drv)
+        smc->traystate_reg = blk_is_inserted(blk)
                                 ? SMC_REG_TRAYSTATE_MEDIA_DETECTED
                                 : SMC_REG_TRAYSTATE_NO_MEDIA_DETECTED;
         smc->intstatus_reg |= SMC_REG_INTSTATUS_TRAYCLOSED;
     }
+
+    char *message = g_strdup_printf(
+        "xbox SMC: DVD tray=%s, media=%s, state=0x%02x",
+        blk_dev_is_tray_open(blk) ? "open" : "closed",
+        blk_is_inserted(blk) ? "inserted" : "absent",
+        smc->traystate_reg);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, message);
+    g_free(message);
 
     xbox_assert_extsmi();
 }

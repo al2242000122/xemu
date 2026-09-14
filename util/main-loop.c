@@ -309,7 +309,7 @@ static int glib_n_poll_fds;
 static void glib_pollfds_fill(int64_t *cur_timeout)
 {
 #if defined(XBOX) || defined(CONFIG_UWP)
-    GMainContext *context = g_main_context_get_thread_default();
+    GMainContext *context = qemu_main_context;
 #else
     GMainContext *context = g_main_context_default();
 #endif
@@ -342,7 +342,7 @@ static void glib_pollfds_fill(int64_t *cur_timeout)
 static void glib_pollfds_poll(void)
 {
 #if defined(XBOX) || defined(CONFIG_UWP)
-    GMainContext *context = g_main_context_get_thread_default();
+    GMainContext *context = qemu_main_context;
 #else
     GMainContext *context = g_main_context_default();
 #endif
@@ -358,7 +358,7 @@ static void glib_pollfds_poll(void)
 static int os_host_main_loop_wait(int64_t timeout)
 {
 #if defined(XBOX) || defined(CONFIG_UWP)
-    GMainContext *context = g_main_context_get_thread_default();
+    GMainContext *context = qemu_main_context;
 #else
     GMainContext *context = g_main_context_default();
 #endif
@@ -534,7 +534,7 @@ static void pollfds_poll(GArray *pollfds, int nfds, fd_set *rfds,
 static int os_host_main_loop_wait(int64_t timeout)
 {
 #if defined(XBOX) || defined(CONFIG_UWP)
-    GMainContext *context = g_main_context_get_thread_default();
+    GMainContext *context = qemu_main_context;
 #else
     GMainContext *context = g_main_context_default();
 #endif

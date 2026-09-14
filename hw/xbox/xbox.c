@@ -40,6 +40,9 @@
 #include "system/arch_init.h"
 #include "system/memory.h"
 #include "system/address-spaces.h"
+#include "system/block-backend.h"
+#include "block/block_int-global-state.h"
+#include "block/block_int-io.h"
 #include "cpu.h"
 
 #include "qapi/error.h"
@@ -298,6 +301,34 @@ void xbox_init_common(MachineState *machine,
     qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: IDE init begin");
     PCIDevice *dev = pci_create_simple(pci_bus, PCI_DEVFN(9, 0), "piix3-ide");
     pci_ide_create_devs(dev);
+#ifdef CONFIG_UWP
+    /*
+     * Brokered media is already attached when the IDE device is realized, so
+     * it does not pass through the removable-media insertion path.  Notify
+     * the ATAPI device explicitly: this refreshes its geometry and raises the
+     * media-change condition expected by the Xbox firmware.
+     */
+    BlockBackend *dvd_blk = blk_by_name("ide0-cd1");
+    if (dvd_blk && blk_is_inserted(dvd_blk)) {
+        Error *local_err = NULL;
+
+        blk_dev_change_media_cb(dvd_blk, true, &local_err);
+        if (local_err) {
+            char *message = g_strdup_printf(
+                "xbox board: failed to synchronize UWP DVD media: %s",
+                error_get_pretty(local_err));
+            qemu_host_emit_log(QEMU_HOST_LOG_ERROR, message);
+            g_free(message);
+            error_free(local_err);
+        } else {
+            qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                               "xbox board: UWP DVD media synchronized");
+        }
+    } else {
+        qemu_host_emit_log(QEMU_HOST_LOG_WARNING,
+                           "xbox board: UWP DVD backend has no inserted media");
+    }
+#endif
     qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: IDE init complete");
     // idebus[0] = qdev_get_child_bus(&dev->qdev, "ide.0");
     // idebus[1] = qdev_get_child_bus(&dev->qdev, "ide.1");

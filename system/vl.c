@@ -3104,7 +3104,8 @@ void qemu_init(int argc, char **argv)
     // connected but no media present.
     fake_argv[fake_argc++] = strdup("-drive");
     char *escaped_dvd_path = strdup_double_commas(dvd_path);
-    fake_argv[fake_argc++] = g_strdup_printf("index=1,media=cdrom,file=%s",
+    fake_argv[fake_argc++] = g_strdup_printf(
+        "index=1,media=cdrom,format=raw,readonly=on,file=%s",
         escaped_dvd_path);
     free(escaped_dvd_path);
 

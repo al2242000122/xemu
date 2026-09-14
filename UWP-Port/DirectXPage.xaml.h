@@ -42,6 +42,10 @@ namespace UWP_Port
 		void ResetXemu_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void StopXemu_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void SelectFile_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MountXboxFile(Windows::Storage::StorageFile^ file,
+		                   Platform::String^ tagValue, bool persist);
+		void RestorePersistedFiles();
+		void RestorePersistedFile(Platform::String^ tagValue);
 		// Rastreie nossa entrada independente em um thread de trabalho de segundo plano.
 		Windows::Foundation::IAsyncAction^ m_inputLoopWorker;
 		Windows::UI::Core::CoreIndependentInputSource^ m_coreInput;

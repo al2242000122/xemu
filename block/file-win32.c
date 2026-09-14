@@ -59,6 +59,7 @@ typedef struct RawWin32AIOData {
 #ifdef CONFIG_UWP
     bool brokered;
     int64_t brokered_handle;
+    QemuMutex *brokered_lock;
 #endif
 } RawWin32AIOData;
 
@@ -70,6 +71,7 @@ typedef struct BDRVRawState {
 #ifdef CONFIG_UWP
     bool brokered;
     int64_t brokered_handle;
+    QemuMutex brokered_lock;
 #endif
 } BDRVRawState;
 
@@ -89,10 +91,13 @@ static size_t handle_aiocb_rw(RawWin32AIOData *aiocb)
     int i;
 
 #ifdef CONFIG_UWP
-    if (aiocb->brokered &&
-        qemu_host_storage_seek(aiocb->brokered_handle,
-                               aiocb->aio_offset, SEEK_SET) < 0) {
-        return 0;
+    if (aiocb->brokered) {
+        qemu_mutex_lock(aiocb->brokered_lock);
+        if (qemu_host_storage_seek(aiocb->brokered_handle,
+                                   aiocb->aio_offset, SEEK_SET) < 0) {
+            qemu_mutex_unlock(aiocb->brokered_lock);
+            return 0;
+        }
     }
 #endif
 
@@ -141,6 +146,11 @@ static size_t handle_aiocb_rw(RawWin32AIOData *aiocb)
         offset += len;
     }
 
+#ifdef CONFIG_UWP
+    if (aiocb->brokered) {
+        qemu_mutex_unlock(aiocb->brokered_lock);
+    }
+#endif
     return offset;
 }
 
@@ -207,6 +217,7 @@ static BlockAIOCB *paio_submit(BlockDriverState *bs, BDRVRawState *s,
 #ifdef CONFIG_UWP
     acb->brokered = s->brokered;
     acb->brokered_handle = s->brokered_handle;
+    acb->brokered_lock = &s->brokered_lock;
 #endif
     acb->aio_type = type;
 
@@ -454,6 +465,7 @@ static int raw_open(BlockDriverState *bs, QDict *options, int flags,
             goto fail;
         }
         s->brokered = true;
+        qemu_mutex_init(&s->brokered_lock);
         s->hfile = INVALID_HANDLE_VALUE;
         bs->supported_truncate_flags = BDRV_REQ_ZERO_WRITE;
         ret = 0;
@@ -585,6 +597,8 @@ static void raw_close(BlockDriverState *bs)
 #ifdef CONFIG_UWP
     if (s->brokered) {
         qemu_host_storage_close(s->brokered_handle);
+        qemu_mutex_destroy(&s->brokered_lock);
+        s->brokered = false;
     } else
 #endif
     {

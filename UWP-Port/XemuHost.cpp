@@ -18,6 +18,10 @@ using namespace concurrency;
 namespace {
 struct BrokeredFileStream {
     IRandomAccessStream^ stream;
+    std::string name;
+
+    BrokeredFileStream(IRandomAccessStream^ value, const std::string& fileName)
+        : stream(value), name(fileName) {}
 };
 }
 
@@ -477,16 +481,37 @@ void XemuHost::ReleaseBrokeredObject(void*, void* object)
     }
 }
 
-int XemuHost::OpenBrokeredFile(void*, void*, void* randomAccessStream,
+int XemuHost::OpenBrokeredFile(void* opaque, void* storageFile,
+                               void* randomAccessStream,
                                int, int64_t* handle)
 {
-    if (!randomAccessStream || !handle) {
+    if (!storageFile || !randomAccessStream || !handle) {
         return -EINVAL;
     }
     try {
-        auto stream = reinterpret_cast<IRandomAccessStream^>(randomAccessStream);
-        auto brokered = new BrokeredFileStream{ stream };
+        /* QEMU may open the same image more than once while probing its
+           format and while creating the block backend. IRandomAccessStream
+           keeps its cursor in the stream object, so sharing the mounted
+           instance corrupts otherwise independent seek/read sequences. */
+        auto source = reinterpret_cast<IRandomAccessStream^>(randomAccessStream);
+        auto file = reinterpret_cast<StorageFile^>(storageFile);
+        std::wstring wideName(file->Name->Data());
+        int utf8Size = WideCharToMultiByte(CP_UTF8, 0, wideName.c_str(), -1,
+                                           nullptr, 0, nullptr, nullptr);
+        std::string name(static_cast<size_t>(utf8Size), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wideName.c_str(), -1, &name[0],
+                            utf8Size, nullptr, nullptr);
+        name.pop_back();
+        auto stream = source->CloneStream();
+        stream->Seek(0);
+        auto brokered = new BrokeredFileStream(stream, name);
         *handle = reinterpret_cast<int64_t>(brokered);
+        auto self = static_cast<XemuHost*>(opaque);
+        if (self) {
+            self->WriteDiagnostic("[storage] Handle aberto: " + name +
+                                  ", tamanho " +
+                                  std::to_string(stream->Size) + " bytes");
+        }
         return 0;
     } catch (...) {
         return -EIO;
@@ -509,11 +534,14 @@ int64_t XemuHost::ReadBrokeredFile(void* opaque, int64_t handle, void* buffer,
         static std::atomic<uint32_t> readSequence{ 0 };
         uint32_t sequence = readSequence.fetch_add(1);
         auto brokered = reinterpret_cast<BrokeredFileStream*>(handle);
+        uint64_t position = brokered->stream->Position;
         unsigned int count = static_cast<unsigned int>((std::min)(
             size, static_cast<size_t>((std::numeric_limits<unsigned int>::max)())));
         if (self && sequence < 32) {
             self->WriteDiagnostic("[storage] Leitura brokered #" +
                                   std::to_string(sequence) + " iniciada: " +
+                                  brokered->name + " @" +
+                                  std::to_string(position) + ", " +
                                   std::to_string(count) + " bytes");
         }
         auto reader = ref new DataReader(brokered->stream);

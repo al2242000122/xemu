@@ -11,6 +11,8 @@ using namespace UWP_Port;
 using namespace Platform;
 using namespace Windows::Foundation;
 using namespace Windows::Foundation::Collections;
+using namespace Windows::Storage;
+using namespace Windows::Storage::AccessCache;
 using namespace Windows::Graphics::Display;
 using namespace Windows::System::Threading;
 using namespace Windows::UI::Core;
@@ -60,6 +62,7 @@ DirectXPage::DirectXPage():
 	m_inputLoopWorker = ThreadPool::RunAsync(workItemHandler, WorkItemPriority::High, WorkItemOptions::TimeSliced);
 
 	m_xemu = std::unique_ptr<XemuHost>(new XemuHost());
+	RestorePersistedFiles();
 	swapChainPanel->Loaded += ref new RoutedEventHandler(
 		this, &DirectXPage::OnRenderPanelLoaded);
 	swapChainPanel->SizeChanged += ref new SizeChangedEventHandler(
@@ -170,14 +173,27 @@ void DirectXPage::SelectFile_Click(Object^ sender, RoutedEventArgs^)
 	create_task(picker->PickSingleFileAsync()).then([this, button](Windows::Storage::StorageFile^ file) {
 		if (!file) return;
 		auto tagValue = button->Tag->ToString();
-		auto status = tagValue == "flash" ? flashFileStatus :
-		              tagValue == "bootrom" ? bootromFileStatus :
-		              tagValue == "hdd" ? hddFileStatus : dvdFileStatus;
-		auto location = file->Path->IsEmpty() ? file->Name : file->Path;
-		status->Text = location + "  |  " + file->Name;
-		auto access = tagValue == "hdd" ? Windows::Storage::FileAccessMode::ReadWrite :
-		                                  Windows::Storage::FileAccessMode::Read;
-		create_task(file->OpenAsync(access)).then([this, file, tagValue](Windows::Storage::Streams::IRandomAccessStream^ stream) {
+		MountXboxFile(file, tagValue, tagValue != "dvd");
+	});
+}
+
+void DirectXPage::MountXboxFile(StorageFile^ file, String^ tagValue,
+	                            bool persist)
+{
+	auto status = tagValue == "flash" ? flashFileStatus :
+	              tagValue == "bootrom" ? bootromFileStatus :
+	              tagValue == "hdd" ? hddFileStatus : dvdFileStatus;
+	auto location = file->Path->IsEmpty() ? file->Name : file->Path;
+	status->Text = location + "  |  " + file->Name;
+
+	if (persist) {
+		StorageApplicationPermissions::FutureAccessList->AddOrReplace(
+			"xemu-" + tagValue, file);
+	}
+	auto access = tagValue == "hdd" ? FileAccessMode::ReadWrite :
+	                                  FileAccessMode::Read;
+	create_task(file->OpenAsync(access)).then(
+		[this, file, tagValue](Windows::Storage::Streams::IRandomAccessStream^ stream) {
 			std::string tag = tagValue == "flash" ? "flash" :
 			                  tagValue == "bootrom" ? "bootrom" :
 			                  tagValue == "hdd" ? "hdd" : "dvd";
@@ -188,7 +204,34 @@ void DirectXPage::SelectFile_Click(Object^ sender, RoutedEventArgs^)
 				toolTabs->SelectedIndex = 3;
 			}
 		});
-	});
+}
+
+void DirectXPage::RestorePersistedFiles()
+{
+	RestorePersistedFile("flash");
+	RestorePersistedFile("bootrom");
+	RestorePersistedFile("hdd");
+}
+
+void DirectXPage::RestorePersistedFile(String^ tagValue)
+{
+	auto token = "xemu-" + tagValue;
+	if (!StorageApplicationPermissions::FutureAccessList->ContainsItem(token)) {
+		return;
+	}
+	create_task(StorageApplicationPermissions::FutureAccessList->GetFileAsync(token))
+		.then([this, tagValue](StorageFile^ file) {
+			MountXboxFile(file, tagValue, false);
+		}).then([this](task<void> result) {
+			try {
+				result.get();
+			}
+			catch (Platform::Exception^ exception)
+			{
+				errorText->Text = "Falha ao restaurar arquivo salvo: " +
+				                  exception->Message;
+			}
+		});
 }
 
 void DirectXPage::OnPointerPressed(Object^ sender, PointerEventArgs^ e)
