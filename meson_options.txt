@@ -38,6 +38,8 @@ option('vtune', type : 'string', value : '',
 option('coroutine_backend', type: 'combo',
        choices: ['ucontext', 'sigaltstack', 'windows', 'wasm', 'auto'],
        value: 'auto', description: 'coroutine backend to use')
+option('uwp', type: 'boolean', value: false,
+       description: 'Build xemu as an embeddable UWP-compatible DLL')
 option('gdb', type: 'string', value: '',
        description: 'Path to GDB')
 

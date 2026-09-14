@@ -47,6 +47,9 @@ static bool init_nvapi_func(const char *name, unsigned int interface_id,
 
 bool nvapi_init(void)
 {
+#ifdef XBOX
+    return false;
+#else
 #ifdef _WIN64
     g_hnvapi = LoadLibraryA("nvapi64.dll");
 #else
@@ -79,6 +82,7 @@ error:
     FreeLibrary(g_hnvapi);
     g_hnvapi = NULL;
     return false;
+#endif
 }
 
 void nvapi_finalize(void)

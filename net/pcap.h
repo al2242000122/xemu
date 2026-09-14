@@ -20,9 +20,17 @@
 #ifndef NET_PCAP_H
 #define NET_PCAP_H
 
+#ifdef XBOX
+typedef struct pcap_if {
+    struct pcap_if *next;
+    char *name;
+    char *description;
+} pcap_if_t;
+#else
 #include <pcap/pcap.h>
+#endif
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(XBOX)
 #include "net/capture_win_ifnames.h"
 #endif
 

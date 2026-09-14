@@ -1046,6 +1046,10 @@ static const char *exec_dir;
 void qemu_init_exec_dir(const char *argv0)
 {
 #ifdef G_OS_WIN32
+#ifdef XBOX
+    /* The UWP host supplies data paths explicitly through the embedding API. */
+    exec_dir = ".";
+#else
     char *p;
     char buf[MAX_PATH];
     DWORD len;
@@ -1070,6 +1074,7 @@ void qemu_init_exec_dir(const char *argv0)
     } else {
         exec_dir = CONFIG_BINDIR;
     }
+#endif
 #else
     char *p = NULL;
     char buf[PATH_MAX];

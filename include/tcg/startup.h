@@ -25,7 +25,7 @@
 #ifndef TCG_STARTUP_H
 #define TCG_STARTUP_H
 
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
 void tcg_register_init_ctx(void);
 #endif
 

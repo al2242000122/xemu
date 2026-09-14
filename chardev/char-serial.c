@@ -29,9 +29,9 @@
 #include "io/channel-file.h"
 #include "qapi/error.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
 #include "chardev/char-win.h"
-#else
+#elif !defined(_WIN32)
 #include <sys/ioctl.h>
 #include <termios.h>
 #include "chardev/char-fd.h"
@@ -39,7 +39,7 @@
 
 #include "chardev/char-serial.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
 
 static void qmp_chardev_open_serial(Chardev *chr,
                                     ChardevBackend *backend,
@@ -49,6 +49,16 @@ static void qmp_chardev_open_serial(Chardev *chr,
     ChardevHostdev *serial = backend->u.serial.data;
 
     win_chr_serial_init(chr, serial->device, errp);
+}
+
+#elif defined(CONFIG_UWP)
+
+static void qmp_chardev_open_serial(Chardev *chr,
+                                    ChardevBackend *backend,
+                                    bool *be_opened,
+                                    Error **errp)
+{
+    error_setg(errp, "serial chardevs are not supported in UWP mode");
 }
 
 #elif defined(__linux__) || defined(__sun__) || defined(__FreeBSD__)      \
@@ -315,8 +325,10 @@ static void char_serial_class_init(ObjectClass *oc, const void *data)
 
 static const TypeInfo char_serial_type_info = {
     .name = TYPE_CHARDEV_SERIAL,
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
     .parent = TYPE_CHARDEV_WIN,
+#elif defined(CONFIG_UWP)
+    .parent = TYPE_CHARDEV,
 #else
     .parent = TYPE_CHARDEV_FD,
 #endif

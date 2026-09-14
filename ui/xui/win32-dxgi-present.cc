@@ -19,7 +19,7 @@
 
 #include "win32-dxgi-present.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(XBOX)
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -660,7 +660,7 @@ void win32_dxgi_present_resize(int width, int height)
 
 } // extern "C"
 
-#else // !_WIN32
+#else
 
 extern "C" {
 
@@ -691,4 +691,4 @@ void win32_dxgi_present_resize(int width, int height)
 
 } // extern "C"
 
-#endif // _WIN32
+#endif

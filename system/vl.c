@@ -99,6 +99,9 @@
 #include "qemu/option.h"
 #include "qemu/config-file.h"
 #include "qemu/main-loop.h"
+#define QEMU_HOST_INTERNAL
+#include "qemu/qemu-host.h"
+#undef QEMU_HOST_INTERNAL
 #ifdef CONFIG_VIRTFS
 #include "fsdev/qemu-fsdev.h"
 #endif
@@ -2523,15 +2526,10 @@ static void configure_accelerators(const char *progname)
     }
 }
 
-/* Return 1 if file fails to open */
+/* Return 1 if the file is not accessible, including brokered UWP files. */
 static int xemu_check_file(const char *path)
 {
-    FILE *fd = qemu_fopen(path, "rb");
-    if (fd == NULL) {
-        return 1;
-    }
-    fclose(fd);
-    return 0;
+    return qemu_access(path, F_OK) == -1;
 }
 
 // Duplicate commas to escape them
@@ -2962,7 +2960,9 @@ void qemu_init(int argc, char **argv)
 /*****************************************************************************/
 
     // init earlier because it's needed for eeprom generation
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "qemu_init: crypto init begin");
     qcrypto_init(&error_fatal);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "qemu_init: crypto init complete");
 
     //
     // FIXME: This is a hack to get QEMU to load correct machine and properties
@@ -2981,6 +2981,10 @@ void qemu_init(int argc, char **argv)
 
     char *bootrom_arg = NULL;
     const char *bootrom_path = g_config.sys.files.bootrom_path;
+
+    if (!bootrom_path) {
+        bootrom_path = "";
+    }
 
     if (strlen(bootrom_path) > 0) {
         int bootrom_size = get_image_size(bootrom_path, NULL);
@@ -3028,6 +3032,7 @@ void qemu_init(int argc, char **argv)
     }
 
     const char *eeprom_path = get_eeprom_path();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "qemu_init: EEPROM prepared");
     if (eeprom_path) {
         fake_argv[fake_argc++] = strdup("-device");
         char *escaped_eeprom_path = strdup_double_commas(eeprom_path);
@@ -3039,6 +3044,9 @@ void qemu_init(int argc, char **argv)
     }
 
     const char *flashrom_path = g_config.sys.files.flashrom_path;
+    if (!flashrom_path) {
+        flashrom_path = "";
+    }
     if (g_config.general.show_welcome) {
         // Don't display an error if this is the first boot. Give user a chance
         // to configure the path.
@@ -3058,6 +3066,9 @@ void qemu_init(int argc, char **argv)
     fake_argv[fake_argc++] = g_strdup_printf("%d", mem);
 
     const char *hdd_path = g_config.sys.files.hdd_path;
+    if (!hdd_path) {
+        hdd_path = "";
+    }
     if (strlen(hdd_path) > 0) {
         if (xemu_check_file(hdd_path)) {
             char *msg = g_strdup_printf("Failed to open hard disk image file '%s'. Please check machine settings.", hdd_path);
@@ -3074,6 +3085,9 @@ void qemu_init(int argc, char **argv)
     }
 
     const char *dvd_path = g_config.sys.files.dvd_path;
+    if (!dvd_path) {
+        dvd_path = "";
+    }
     // Allow overriding the dvd path from command line
     for (int i = 1; i < argc; i++) {
         if (argv[i] && strcmp(argv[i], "-dvd_path") == 0) {
@@ -3115,6 +3129,8 @@ void qemu_init(int argc, char **argv)
 
     argc = fake_argc;
     argv = fake_argv;
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: launch arguments prepared");
 
 /*****************************************************************************/
 
@@ -3152,6 +3168,8 @@ void qemu_init(int argc, char **argv)
     qemu_add_opts(&qemu_action_opts);
     qemu_add_run_with_opts();
     module_call_init(MODULE_INIT_OPTS);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: option modules initialized");
 
     error_init(argv[0]);
     qemu_init_exec_dir(argv[0]);
@@ -3164,6 +3182,8 @@ void qemu_init(int argc, char **argv)
 #endif
 
     qemu_init_subsystems();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: subsystems initialized");
 
     /* first pass of option parsing */
     optind = 1;
@@ -3187,6 +3207,8 @@ void qemu_init(int argc, char **argv)
     if (userconfig) {
         qemu_read_default_config_file(&error_fatal);
     }
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: first option pass complete");
 
     /* second pass of option parsing */
     optind = 1;
@@ -3997,6 +4019,8 @@ void qemu_init(int argc, char **argv)
      * Best done right after the loop.  Do not insert code here!
      */
     loc_set_none();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: command line parsed");
 
     qemu_validate_options(machine_opts_dict);
     qemu_process_sugar_options();
@@ -4024,6 +4048,8 @@ void qemu_init(int argc, char **argv)
     trace_init_file();
 
     qemu_init_main_loop(&error_fatal);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: main loop initialized");
     cpu_timers_init();
 
     user_register_global_props();
@@ -4035,31 +4061,57 @@ void qemu_init(int argc, char **argv)
     parse_memory_options();
 
     qemu_create_machine(machine_opts_dict);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: machine object created");
 
     /*
      * Load incoming CPR state before any devices are created, because it
      * contains file descriptors that are needed in device initialization code.
      */
     cpr_state_load(incoming_channels[MIGRATION_CHANNEL_TYPE_CPR], &error_fatal);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: CPR state checked");
 
     suspend_mux_open();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: suspend mux opened");
 
     qemu_disable_default_devices();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: default devices filtered");
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: display setup begin");
     qemu_setup_display();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: display setup complete");
     qemu_create_default_devices();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: default devices created");
     qemu_create_early_backends();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: early backends created");
 
     qemu_apply_legacy_machine_options(machine_opts_dict);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: legacy machine options applied");
     qemu_apply_machine_options(machine_opts_dict);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: machine options applied");
     qobject_unref(machine_opts_dict);
     phase_advance(PHASE_MACHINE_CREATED);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: machine phase advanced");
 
     /*
      * Note: uses machine properties such as kernel-irqchip, must run
      * after qemu_apply_machine_options.
      */
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: accelerator configuration begin");
     configure_accelerators(argv[0]);
     phase_advance(PHASE_ACCEL_CREATED);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: accelerator configured");
 
     /*
      * Beware, QOM objects created before this point miss global and
@@ -4115,9 +4167,15 @@ void qemu_init(int argc, char **argv)
     }
 
     if (!preconfig_requested) {
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "qemu_init: board creation begin");
         qmp_x_exit_preconfig(&error_fatal);
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "qemu_init: board creation complete");
     }
     qemu_init_displays();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "qemu_init: displays initialized");
     accel_setup_post(current_machine);
     if (migrate_mode() != MIG_MODE_CPR_EXEC) {
         os_setup_post();

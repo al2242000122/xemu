@@ -873,6 +873,12 @@ NetworkInterfaceManager::NetworkInterfaceManager()
 
 void NetworkInterfaceManager::Refresh(void)
 {
+#ifdef XBOX
+    m_ifaces.clear();
+    m_current_iface = NULL;
+    m_failed_to_load_lib = true;
+    return;
+#else
     pcap_if_t *alldevs, *iter;
     char err[PCAP_ERRBUF_SIZE];
 
@@ -910,6 +916,7 @@ void NetworkInterfaceManager::Refresh(void)
     }
 
     pcap_freealldevs(alldevs);
+#endif
 }
 
 void NetworkInterfaceManager::Select(NetworkInterface &iface)

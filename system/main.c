@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  */
 
-#ifndef XBOX
+#if !defined(XBOX) && !defined(CONFIG_UWP)
 
 #include "qemu/osdep.h"
 #include "qemu-main.h"

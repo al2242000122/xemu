@@ -17,6 +17,7 @@ system_ss.add(files(
   'dma-helpers.c',
   'exit-with-parent.c',
   'globals.c',
+  'host.c',
   'ioport.c',
   'ram-block-attributes.c',
   'memory_mapping.c',

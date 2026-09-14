@@ -27,6 +27,11 @@
  */
 
 #include "qemu/osdep.h"
+#ifdef CONFIG_UWP
+#define QEMU_HOST_INTERNAL
+#include "qemu/qemu-host.h"
+#undef QEMU_HOST_INTERNAL
+#endif
 #include <windows.h>
 #include "qapi/error.h"
 #include "qemu/main-loop.h"
@@ -895,6 +900,21 @@ done:
 
 int qemu_access(const char *pathname, int mode)
 {
+#ifdef CONFIG_UWP
+    if (qemu_host_storage_path_is_brokered(pathname)) {
+        QemuHostStorageStat stat;
+
+        if (mode & W_OK) {
+            errno = EACCES;
+            return -1;
+        }
+        if (qemu_host_storage_stat(pathname, &stat) == 0) {
+            return 0;
+        }
+        errno = ENOENT;
+        return -1;
+    }
+#endif
     wchar_t *wpathname;
     int ret = -1;
 

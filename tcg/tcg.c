@@ -1290,7 +1290,7 @@ void tcg_register_thread(void)
 }
 #else
 
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
 void tcg_register_init_ctx(void)
 {
     /*

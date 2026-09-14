@@ -44,6 +44,9 @@
 
 #include "qapi/error.h"
 #include "qemu/error-report.h"
+#define QEMU_HOST_INTERNAL
+#include "qemu/qemu-host.h"
+#undef QEMU_HOST_INTERNAL
 
 #include "hw/timer/i8254.h"
 #include "hw/audio/pcspk.h"
@@ -87,13 +90,9 @@ static void xbox_flash_init(MachineState *ms, MemoryRegion *rom_memory)
     if (!failed_to_load_bios && (filename != NULL)) {
         /* Read BIOS ROM into memory */
         failed_to_load_bios = 1;
-        int fd = qemu_open(filename, O_RDONLY | O_BINARY, NULL);
-        if (fd >= 0) {
-            int rc = read(fd, bios_data, bios_size);
-            if (rc == bios_size) {
-                failed_to_load_bios = 0;
-            }
-            close(fd);
+        int rc = load_image_size(filename, bios_data, bios_size);
+        if (rc == bios_size) {
+            failed_to_load_bios = 0;
         }
     }
 
@@ -156,11 +155,10 @@ static void xbox_flash_init(MachineState *ms, MemoryRegion *rom_memory)
         }
 
         /* Read in MCPX ROM over last 512 bytes of BIOS data */
-        int fd = qemu_open(filename, O_RDONLY | O_BINARY, NULL);
-        assert(fd >= 0);
-        int rc = read(fd, bios_data + bios_size - bootrom_size, bootrom_size);
+        int rc = load_image_size(filename,
+                                 bios_data + bios_size - bootrom_size,
+                                 bootrom_size);
         assert(rc == bootrom_size);
-        close(fd);
         g_free(filename);
     }
 
@@ -211,6 +209,7 @@ void xbox_init_common(MachineState *machine,
                       PCIBus **pci_bus_out,
                       ISABus **isa_bus_out)
 {
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: CPU init begin");
     PCMachineState *pcms = PC_MACHINE(machine);
     PCMachineClass *pcmc = PC_MACHINE_GET_CLASS(pcms);
     X86MachineState *x86ms = X86_MACHINE(machine);
@@ -241,6 +240,7 @@ void xbox_init_common(MachineState *machine,
     PCIBus *agp_bus;
 
     x86_cpus_init(x86ms, pcmc->default_cpu_version);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: CPU init complete");
 
     if (kvm_enabled()) {
         kvmclock_create(pcmc->kvmclock_create_always);
@@ -253,10 +253,13 @@ void xbox_init_common(MachineState *machine,
     // pc_guest_info_init(pcms);
 
     /* allocate ram and load rom/bios */
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: memory and ROM init begin");
     xbox_memory_init(pcms, system_memory, rom_memory, &ram_memory);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: memory and ROM init complete");
 
     gsi_state = pc_gsi_create(&x86ms->gsi, pcmc->pci_enabled);
 
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: PCI chipset init begin");
     xbox_pci_init(x86ms->gsi,
                   get_system_memory(), get_system_io(),
                   pci_memory, ram_memory, rom_memory,
@@ -264,6 +267,7 @@ void xbox_init_common(MachineState *machine,
                   &isa_bus,
                   &smbus,
                   &agp_bus);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: PCI chipset init complete");
 
     pcms->pcibus = pci_bus;
 
@@ -291,8 +295,10 @@ void xbox_init_common(MachineState *machine,
                              OBJECT(pit), &error_fatal);
     isa_realize_and_unref(pcms->pcspk, isa_bus, &error_fatal);
 
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: IDE init begin");
     PCIDevice *dev = pci_create_simple(pci_bus, PCI_DEVFN(9, 0), "piix3-ide");
     pci_ide_create_devs(dev);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: IDE init complete");
     // idebus[0] = qdev_get_child_bus(&dev->qdev, "ide.0");
     // idebus[1] = qdev_get_child_bus(&dev->qdev, "ide.1");
 
@@ -328,16 +334,21 @@ void xbox_init_common(MachineState *machine,
     pci_realize_and_unref(nvnet, pci_bus, &error_fatal);
 
     /* APU! */
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: APU init begin");
     mcpx_apu_init(pci_bus, PCI_DEVFN(5, 0), ram_memory);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: APU init complete");
 
     /* ACI! */
     pci_create_simple(pci_bus, PCI_DEVFN(6, 0), "mcpx-aci");
 
     /* GPU! */
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: NV2A init begin");
     nv2a_init(agp_bus, PCI_DEVFN(0, 0), ram_memory);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: NV2A init complete");
 
     /* FIXME: Stub the memory controller */
     pci_create_simple(pci_bus, PCI_DEVFN(0, 3), "pci-testdev");
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG, "xbox board: initialization complete");
 
     if (pci_bus_out) {
         *pci_bus_out = pci_bus;

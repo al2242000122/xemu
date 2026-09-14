@@ -36,7 +36,7 @@
 #include "qemu/queue.h"
 #include "qom/object.h"
 
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
 /* FIXME: This is a slightly incomplete implementation of moving
  * QEMU to a dedicated glib context.
  *
@@ -179,7 +179,7 @@ void qemu_notify_event(void)
 
 static GArray *gpollfds;
 
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
 void qemu_init_main_loop_lock(void)
 {
     qemu_mutex_init(&qemu_main_loop_lock);
@@ -201,7 +201,7 @@ int qemu_init_main_loop(Error **errp)
     int ret;
     GSource *src;
 
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     qemu_main_context = g_main_context_new();
     assert(qemu_main_context != NULL);
     g_main_context_push_thread_default(qemu_main_context);
@@ -224,7 +224,7 @@ int qemu_init_main_loop(Error **errp)
     gpollfds = g_array_new(FALSE, FALSE, sizeof(GPollFD));
     src = aio_get_g_source(qemu_aio_context);
     g_source_set_name(src, "aio-context");
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     g_source_attach(src, qemu_main_context);
 #else
     g_source_attach(src, NULL);
@@ -232,7 +232,7 @@ int qemu_init_main_loop(Error **errp)
     g_source_unref(src);
     src = iohandler_get_g_source();
     g_source_set_name(src, "io-handler");
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     g_source_attach(src, qemu_main_context);
 #else
     g_source_attach(src, NULL);
@@ -308,7 +308,7 @@ static int glib_n_poll_fds;
 
 static void glib_pollfds_fill(int64_t *cur_timeout)
 {
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     GMainContext *context = g_main_context_get_thread_default();
 #else
     GMainContext *context = g_main_context_default();
@@ -341,7 +341,7 @@ static void glib_pollfds_fill(int64_t *cur_timeout)
 
 static void glib_pollfds_poll(void)
 {
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     GMainContext *context = g_main_context_get_thread_default();
 #else
     GMainContext *context = g_main_context_default();
@@ -357,7 +357,7 @@ static void glib_pollfds_poll(void)
 
 static int os_host_main_loop_wait(int64_t timeout)
 {
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     GMainContext *context = g_main_context_get_thread_default();
 #else
     GMainContext *context = g_main_context_default();
@@ -371,11 +371,11 @@ static int os_host_main_loop_wait(int64_t timeout)
     bql_unlock();
     replay_mutex_unlock();
 
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     qemu_mutex_unlock_main_loop();
 #endif
     ret = qemu_poll_ns((GPollFD *)gpollfds->data, gpollfds->len, timeout);
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     qemu_mutex_lock_main_loop();
 #endif
 
@@ -533,7 +533,7 @@ static void pollfds_poll(GArray *pollfds, int nfds, fd_set *rfds,
 
 static int os_host_main_loop_wait(int64_t timeout)
 {
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     GMainContext *context = g_main_context_get_thread_default();
 #else
     GMainContext *context = g_main_context_default();
@@ -587,11 +587,11 @@ static int os_host_main_loop_wait(int64_t timeout)
 
     replay_mutex_unlock();
 
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     qemu_mutex_unlock_main_loop();
 #endif
     g_poll_ret = qemu_poll_ns(poll_fds, n_poll_fds + w->num, poll_timeout_ns);
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     qemu_mutex_lock_main_loop();
 #endif
 

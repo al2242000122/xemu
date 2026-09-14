@@ -25,6 +25,7 @@
 #include <epoxy/gl.h>
 
 #include "block/aio.h"
+#include "block/block-common.h"
 #include "block/block_int.h"
 #include "block/qapi.h"
 #include "block/qdict.h"

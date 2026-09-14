@@ -22,6 +22,8 @@
 #include "debug.h"
 #include "renderer.h"
 
+#include <SDL3/SDL_log.h>
+
 static GPUProperties pgraph_gl_gpu_properties;
 
 static const char *vertex_shader_source =
@@ -97,7 +99,13 @@ static const char *fragment_shader_source =
 
 static GLuint compile_shader(GLenum type, const char *source)
 {
+    SDL_Log("embedding: GPU properties shader compile begin: 0x%X", type);
     GLuint shader = glCreateShader(type);
+    if (!shader) {
+        SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+                     "embedding: glCreateShader failed for type 0x%X", type);
+        return 0;
+    }
     glShaderSource(shader, 1, &source, NULL);
     glCompileShader(shader);
 
@@ -107,11 +115,14 @@ static GLuint compile_shader(GLenum type, const char *source)
         char log[512];
         glGetShaderInfoLog(shader, sizeof(log), NULL, log);
         log[sizeof(log) - 1] = '\0';
-        fprintf(stderr, "GL shader type %d compilation failed: %s\n", type,
-                log);
-        assert(!"GL shader compilation failed");
+        SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+                     "embedding: GL shader type 0x%X compilation failed: %s",
+                     type, log);
+        glDeleteShader(shader);
+        return 0;
     }
 
+    SDL_Log("embedding: GPU properties shader compiled: 0x%X", type);
     return shader;
 }
 
@@ -119,8 +130,20 @@ static GLuint create_program(const char *vert_source, const char *geom_source,
                              const char *frag_source)
 {
     GLuint vert_shader = compile_shader(GL_VERTEX_SHADER, vert_source);
+    if (!vert_shader) {
+        return 0;
+    }
     GLuint geom_shader = compile_shader(GL_GEOMETRY_SHADER, geom_source);
+    if (!geom_shader) {
+        glDeleteShader(vert_shader);
+        return 0;
+    }
     GLuint frag_shader = compile_shader(GL_FRAGMENT_SHADER, frag_source);
+    if (!frag_shader) {
+        glDeleteShader(vert_shader);
+        glDeleteShader(geom_shader);
+        return 0;
+    }
 
     GLuint shader_prog = glCreateProgram();
     glAttachShader(shader_prog, vert_shader);
@@ -134,8 +157,10 @@ static GLuint create_program(const char *vert_source, const char *geom_source,
         char log[512];
         glGetProgramInfoLog(shader_prog, sizeof(log), NULL, log);
         log[sizeof(log) - 1] = '\0';
-        fprintf(stderr, "GL shader linking failed: %s\n", log);
-        assert(!"GL shader linking failed");
+        SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+                     "embedding: GL shader linking failed: %s", log);
+        glDeleteProgram(shader_prog);
+        shader_prog = 0;
     }
 
     glDeleteShader(vert_shader);
@@ -165,6 +190,7 @@ static void check_gl_error(const char *context)
 
 static uint8_t *render_geom_shader_triangles(int width, int height)
 {
+    SDL_Log("embedding: GPU properties framebuffer setup begin");
     // Create the framebuffer and renderbuffer for it
     GLuint fbo, rbo;
     glGenFramebuffers(1, &fbo);
@@ -177,11 +203,24 @@ static uint8_t *render_geom_shader_triangles(int width, int height)
                               GL_RENDERBUFFER, rbo);
     check_gl_error("glFramebufferRenderbuffer");
 
-    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    GLenum framebuffer_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (framebuffer_status != GL_FRAMEBUFFER_COMPLETE) {
+        SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+                     "embedding: GPU properties framebuffer incomplete: 0x%X",
+                     framebuffer_status);
+        glDeleteFramebuffers(1, &fbo);
+        glDeleteRenderbuffers(1, &rbo);
+        return NULL;
+    }
 
+    SDL_Log("embedding: GPU properties shader program creation begin");
     GLuint shader_prog = create_program(
         vertex_shader_source, geometry_shader_source, fragment_shader_source);
-    assert(shader_prog != 0);
+    if (!shader_prog) {
+        glDeleteFramebuffers(1, &fbo);
+        glDeleteRenderbuffers(1, &rbo);
+        return NULL;
+    }
 
     glUseProgram(shader_prog);
     check_gl_error("glUseProgram");
@@ -201,17 +240,23 @@ static uint8_t *render_geom_shader_triangles(int width, int height)
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
     check_gl_error("glBindVertexArray");
+    SDL_Log("embedding: GPU properties test draw begin");
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    SDL_Log("embedding: GPU properties triangle draw returned");
     glDrawArrays(GL_TRIANGLE_STRIP, 3, 4);
+    SDL_Log("embedding: GPU properties triangle-strip draw returned");
     glDrawArrays(GL_TRIANGLE_FAN, 7, 4);
+    SDL_Log("embedding: GPU properties triangle-fan draw returned");
     check_gl_error("glDrawArrays");
     glFinish(); // glFinish should be unnecessary
+    SDL_Log("embedding: GPU properties test draw complete");
 
     void *pixels = g_malloc(width * height * 4);
     assert(pixels != NULL);
     glReadBuffer(GL_COLOR_ATTACHMENT0);
     glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     check_gl_error("glReadPixels");
+    SDL_Log("embedding: GPU properties readback complete");
 
     glBindVertexArray(0);
     glDeleteVertexArrays(1, &vao);
@@ -333,12 +378,18 @@ static void determine_triangle_winding_order(uint8_t *pixels, int width,
     props->geom_shader_winding.tri_fan = (fan_rot + 2) % 3;
 }
 
-void pgraph_gl_determine_gpu_properties(void)
+bool pgraph_gl_determine_gpu_properties(void)
 {
     const int width = 640;
     const int height = 480;
 
+    SDL_Log("embedding: GPU properties detection begin");
     uint8_t *pixels = render_geom_shader_triangles(width, height);
+    if (!pixels) {
+        SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+                     "embedding: GPU properties detection failed");
+        return false;
+    }
     determine_triangle_winding_order(pixels, width, height,
                                      &pgraph_gl_gpu_properties);
     g_free(pixels);
@@ -348,6 +399,8 @@ void pgraph_gl_determine_gpu_properties(void)
             pgraph_gl_gpu_properties.geom_shader_winding.tri_strip0,
             pgraph_gl_gpu_properties.geom_shader_winding.tri_strip1,
             pgraph_gl_gpu_properties.geom_shader_winding.tri_fan);
+    SDL_Log("embedding: GPU properties detection complete");
+    return true;
 }
 
 GPUProperties *pgraph_gl_get_gpu_properties(void)

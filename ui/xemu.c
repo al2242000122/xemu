@@ -31,6 +31,9 @@
 #include "qemu/module.h"
 #include "qemu/thread.h"
 #include "qemu/main-loop.h"
+#define QEMU_HOST_INTERNAL
+#include "qemu/qemu-host.h"
+#undef QEMU_HOST_INTERNAL
 #include "qemu/rcu.h"
 #include "qemu-version.h"
 #include "qapi/error.h"
@@ -53,12 +56,15 @@
 
 #include "hw/xbox/smbus.h" // For eject, drive tray
 #include "hw/xbox/nv2a/nv2a.h"
+#include "hw/xbox/nv2a/pgraph/thirdparty/gloffscreen/gloffscreen.h"
 #include "ui/xemu-notifications.h"
 
 #include <stb_image.h>
 #include <locale.h>
 #include <math.h>
 #include <SDL3/SDL.h>
+#define SDL_MAIN_HANDLED
+#include <SDL3/SDL_main.h>
 
 #ifdef _WIN32
 #include "xui/win32-dxgi-present.h"
@@ -948,12 +954,31 @@ static void poll_events(struct xemu_console *scon)
 {
     SDL_Event ev1, *ev = &ev1;
     bool allow_close = true;
+    static bool first_embedded_poll = true;
 
     int kbd = 0, mouse = 0;
+    if (first_embedded_poll) {
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: HUD input capture query begin");
+    }
     xemu_hud_should_capture_kbd_mouse(&kbd, &mouse);
+    if (first_embedded_poll) {
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: HUD input capture query complete");
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: SDL_PollEvent call begin");
+    }
 
     while (SDL_PollEvent(ev)) {
+        if (first_embedded_poll) {
+            qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                               "xemu display: SDL event received; event lock begin");
+        }
         xemu_main_loop_lock();
+        if (first_embedded_poll) {
+            qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                               "xemu display: SDL event lock acquired");
+        }
 
         // HUD must process events first so that if a controller is detached,
         // a latent rebind request can cancel before the state is freed
@@ -1001,10 +1026,29 @@ static void poll_events(struct xemu_console *scon)
         xemu_main_loop_unlock();
     }
 
+    if (first_embedded_poll) {
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: SDL event queue drained");
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: controller update lock begin");
+    }
     xemu_main_loop_lock();
+    if (first_embedded_poll) {
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: controller update lock acquired");
+    }
     xemu_input_update_controllers();
     xemu_main_loop_unlock();
+    if (first_embedded_poll) {
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: controller update complete");
+        first_embedded_poll = false;
+    }
 }
+
+bool xemu_prepare_embedded_display(void);
+void xemu_start_embedded_display(void);
+void xemu_render_embedded_frame(void);
 
 static void display_very_early_init(DisplayOptions *o)
 {
@@ -1018,11 +1062,25 @@ static void display_very_early_init(DisplayOptions *o)
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland,x11");
 #endif
 
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: SDL video init begin");
+#ifdef CONFIG_UWP
+    SDL_SetMainReady();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: SDL embedded entry point ready");
+#endif
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "Failed to initialize SDL video subsystem: %s\n",
                 SDL_GetError());
+#ifdef CONFIG_UWP
+        qemu_host_emit_log(QEMU_HOST_LOG_ERROR, SDL_GetError());
+        return;
+#else
         exit(1);
+#endif
     }
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: SDL video initialized");
 
 #ifdef SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR /* only available since SDL 2.0.8 */
     SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");
@@ -1086,14 +1144,30 @@ static void display_very_early_init(DisplayOptions *o)
     SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 
     // Create main window
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: window creation begin");
     m_window = SDL_CreateWindow(
         title, window_width, window_height,
         window_flags);
     if (m_window == NULL) {
-        fprintf(stderr, "Failed to create main window: %s\n", SDL_GetError());
+        char *sdl_error = g_strdup(SDL_GetError());
+        fprintf(stderr, "Failed to create main window: %s\n", sdl_error);
+#ifdef CONFIG_UWP
+        qemu_host_emit_log(QEMU_HOST_LOG_ERROR,
+                           sdl_error && sdl_error[0] ? sdl_error :
+                           "SDL_CreateWindow failed without an SDL error");
+#endif
         SDL_Quit();
+#ifdef CONFIG_UWP
+        g_free(sdl_error);
+        return;
+#else
+        g_free(sdl_error);
         exit(1);
+#endif
     }
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: window created");
     g_free(title);
     SDL_SetWindowMinimumSize(m_window, min_window_width, min_window_height);
 
@@ -1103,6 +1177,8 @@ static void display_very_early_init(DisplayOptions *o)
         SDL_SetWindowPosition(m_window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     }
 
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: OpenGL context creation begin");
     m_context = SDL_GL_CreateContext(m_window);
 
     if (m_context != NULL && epoxy_gl_version() < 40) {
@@ -1112,6 +1188,12 @@ static void display_very_early_init(DisplayOptions *o)
     }
 
     if (m_context == NULL) {
+        char *sdl_error = g_strdup(SDL_GetError());
+#ifdef CONFIG_UWP
+        qemu_host_emit_log(QEMU_HOST_LOG_ERROR,
+                           sdl_error && sdl_error[0] ? sdl_error :
+                           "SDL_GL_CreateContext failed without an SDL error");
+#endif
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
             "Unable to create OpenGL context",
             "Unable to create OpenGL context. This usually means the\r\n"
@@ -1120,9 +1202,18 @@ static void display_very_early_init(DisplayOptions *o)
             "xemu cannot continue and will now exit.",
             m_window);
         SDL_DestroyWindow(m_window);
+        m_window = NULL;
         SDL_Quit();
+#ifdef CONFIG_UWP
+        g_free(sdl_error);
+        return;
+#else
+        g_free(sdl_error);
         exit(1);
+#endif
     }
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: OpenGL context created");
 
     int width, height, channels = 0;
     stbi_set_flip_vertically_on_load(0);
@@ -1144,8 +1235,86 @@ static void display_very_early_init(DisplayOptions *o)
     fprintf(stderr, "GL_SHADING_LANGUAGE_VERSION: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 
     // Initialize offscreen rendering context now
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: NV2A context initialization begin");
+#ifdef CONFIG_UWP
+    /* A WinRT/XAML application has one native window. NV2A still needs
+     * independent shared GL contexts, but they must all use that window. */
+    glo_set_host_window(m_window);
+#endif
     nv2a_context_init();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: NV2A context initialized");
     SDL_GL_MakeCurrent(NULL, NULL);
+}
+
+bool xemu_prepare_embedded_display(void)
+{
+    if (!m_window || !m_context) {
+        display_very_early_init(NULL);
+    }
+    return m_window && m_context;
+}
+
+void xemu_start_embedded_display(void)
+{
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: embedded frontend setup begin");
+    gui_grab = 0;
+    if (gui_fullscreen) {
+        grab_start(0);
+        set_full_screen(&scon_list[0], gui_fullscreen);
+    }
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: embedded fullscreen state applied");
+
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: TCG UI context registration begin");
+    tcg_register_init_ctx();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: TCG UI context registered");
+    /* main_loop_init() already associated the main AIO context with this
+     * embedding thread. qemu_set_current_aio_context() requires empty TLS and
+     * is only needed by the separate UI thread used by the desktop frontend. */
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: existing AIO context retained");
+
+    /* qemu_host_init() invokes this before releasing the BQL acquired by
+     * qemu_init(). Acquiring it again here would deadlock the embedding
+     * thread; input initialization is already protected by the caller. */
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: input initialization begin");
+    xemu_input_init();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: input initialization complete");
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: embedded render loop initialized");
+}
+
+void xemu_render_embedded_frame(void)
+{
+    static bool first_frame = true;
+
+    if (!scon_list || !m_window || !m_context) {
+        return;
+    }
+    if (first_frame) {
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: first SDL event poll begin");
+    }
+    poll_events(&scon_list[0]);
+    if (first_frame) {
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: first SDL event poll complete");
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: first GL frame begin");
+    }
+    gl_render_frame(&scon_list[0]);
+    if (first_frame) {
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: first GL frame complete");
+        first_frame = false;
+    }
 }
 
 static void display_early_init(DisplayOptions *o)
@@ -1153,12 +1322,16 @@ static void display_early_init(DisplayOptions *o)
     assert(o->type == DISPLAY_TYPE_XEMU);
     display_opengl = 1;
 
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: early initialization begin");
     SDL_GL_MakeCurrent(m_window, m_context);
     SDL_GL_SetSwapInterval(g_config.display.window.vsync ? 1 : 0);
 #ifdef _WIN32
     win32_dxgi_present_init(m_window);
 #endif
     xemu_hud_init(m_window, m_context);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: early initialization complete");
 }
 
 static const DisplayChangeListenerOps dcl_gl_ops = {
@@ -1175,16 +1348,26 @@ static void display_init(DisplayState *ds, DisplayOptions *o)
     int i;
 
     assert(o->type == DISPLAY_TYPE_XEMU);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: console initialization begin");
     SDL_GL_MakeCurrent(m_window, m_context);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: console GL context current");
 
     gui_fullscreen = o->has_full_screen && o->full_screen;
     gui_fullscreen |= g_config.display.window.fullscreen_on_startup;
 
     num_outputs = 1;
     scon_list = g_new0(struct xemu_console, num_outputs);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: console state allocated");
     for (i = 0; i < num_outputs; i++) {
         QemuConsole *con = qemu_console_lookup_by_index(i);
         assert(con != NULL);
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: console found");
+        scon_list[i].real_window = m_window;
+        scon_list[i].winctx = m_context;
         if (!qemu_console_is_graphic(con) &&
             qemu_console_get_index(con) != 0) {
             scon_list[i].hidden = true;
@@ -1194,7 +1377,13 @@ static void display_init(DisplayState *ds, DisplayOptions *o)
         scon_list[i].dcl.ops = &dcl_gl_ops;
         scon_list[i].dcl.con = con;
         scon_list[i].kbd = qkbd_state_init(con);
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: keyboard state initialized");
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: display listener registration begin");
         register_displaychangelistener(&scon_list[i].dcl);
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: display listener registered");
 
 #if defined(SDL_VIDEO_DRIVER_WINDOWS)
         HWND hwnd = (HWND)SDL_GetPointerProperty(SDL_GetWindowProperties(scon_list[i].real_window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
@@ -1207,20 +1396,25 @@ static void display_init(DisplayState *ds, DisplayOptions *o)
             qemu_console_set_window_id(con, xwindow);
         }
 #endif
+        qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                           "xemu display: native window association complete");
     }
-
-    scon_list[0].real_window = m_window;
-    scon_list[0].winctx = m_context;
 
     mouse_mode_notifier.notify = mouse_mode_change;
     qemu_add_mouse_mode_change_notifier(&mouse_mode_notifier);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: mouse notifier registered");
 
     sdl_cursor_hidden = SDL_CreateCursor(&data, &data, 8, 1, 0, 0);
     sdl_cursor_normal = SDL_GetCursor();
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: cursors initialized");
 
     // SDL_PollEvent may block during main window resize or drag operations.
     // Register event watch to handle rendering during these operations.
     SDL_AddEventWatch(event_watch_callback, &scon_list[0]);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: SDL event watch registered");
 
     if (use_vblank_timer_thread) {
         qemu_thread_create(&vblank_thread, "vblank-timer", vblank_timer_thread,
@@ -1229,10 +1423,23 @@ static void display_init(DisplayState *ds, DisplayOptions *o)
         vblank_timer = timer_new_ns(QEMU_CLOCK_REALTIME, vblank_timer_callback, &scon_list[0]);
         timer_mod_ns(vblank_timer, qemu_clock_get_ns(QEMU_CLOCK_REALTIME) + vblank_interval_ns);
     }
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: vblank source initialized");
 
     /* Tell main thread to go ahead and create the app and enter the run loop */
     SDL_GL_MakeCurrent(NULL, NULL);
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: console GL context released");
+#ifdef CONFIG_UWP
+    /* The embedded host calls qemu_init() directly and does not enter main(),
+     * so the desktop display semaphore is neither initialized nor awaited. */
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: desktop synchronization skipped");
+#else
     qemu_sem_post(&display_init_sem);
+#endif
+    qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,
+                       "xemu display: console initialization complete");
 }
 
 static void display_finalize(void)

@@ -34,9 +34,11 @@
 #include "qemu/config-file.h"
 #include "net/net.h"
 #include "net/hub.h"
+#ifdef CONFIG_SLIRP
 #include "net/slirp.h"
 #include <libslirp.h>
-#if defined(_WIN32)
+#endif
+#if defined(_WIN32) && !defined(XBOX)
 #include <pcap/pcap.h>
 #endif
 #include "xemu-notifications.h"
@@ -56,9 +58,14 @@ void xemu_net_enable(void)
     // Create the netdev
     QDict *qdict;
     if (g_config.net.backend == CONFIG_NET_BACKEND_NAT) {
+#ifndef CONFIG_SLIRP
+        xemu_queue_error_message("NAT networking is unavailable in this build");
+        return;
+#else
         qdict = qdict_new();
         qdict_put_str(qdict, "id",   id);
         qdict_put_str(qdict, "type", "user");
+#endif
     } else if (g_config.net.backend == CONFIG_NET_BACKEND_UDP) {
         qdict = qdict_new();
         qdict_put_str(qdict, "id",        id);
@@ -66,7 +73,10 @@ void xemu_net_enable(void)
         qdict_put_str(qdict, "udp",       g_config.net.udp.remote_addr);
         qdict_put_str(qdict, "localaddr", g_config.net.udp.bind_addr);
     } else if (g_config.net.backend == CONFIG_NET_BACKEND_PCAP) {
-#if defined(_WIN32)
+#if defined(XBOX)
+        xemu_queue_error_message("PCAP networking is unavailable in UWP");
+        return;
+#elif defined(_WIN32)
         if (pcap_load_library()) {
             return;
         }
@@ -109,6 +119,7 @@ void xemu_net_enable(void)
     }
 
     if (g_config.net.backend == CONFIG_NET_BACKEND_NAT) {
+#ifdef CONFIG_SLIRP
         void *s = slirp_get_state_from_netdev(id);
         assert(s != NULL);
 
@@ -133,6 +144,7 @@ void xemu_net_enable(void)
             }
 
         }
+#endif
     }
 
     if (local_err) {
@@ -166,6 +178,7 @@ static void remove_netdev(const char *name)
 
 static void clear_slirp_port_forwards(void)
 {
+#ifdef CONFIG_SLIRP
     void *s = slirp_get_state_from_netdev(id);
     if (!s) {
         return;
@@ -179,6 +192,7 @@ static void clear_slirp_port_forwards(void)
                              host_addr,
                              g_config.net.nat.forward_ports[i].host);
     }
+#endif
 }
 
 void xemu_net_disable(void)

@@ -26,24 +26,46 @@
 
 GloContext *g_nv2a_context_render;
 GloContext *g_nv2a_context_display;
+static bool early_context_init_failed;
 
 static void early_context_init(void)
 {
     g_nv2a_context_render = glo_context_create();
+    if (!g_nv2a_context_render) {
+        early_context_init_failed = true;
+        return;
+    }
     g_nv2a_context_display = glo_context_create();
+    if (!g_nv2a_context_display) {
+        early_context_init_failed = true;
+        return;
+    }
 
     // Note: Due to use of shared contexts, this must happen after some other
     // context is created so the temporary context will not become the thread
     // context. After destroying the context, some a durable context should be
     // selected.
     GloContext *context = glo_context_create();
-    pgraph_gl_determine_gpu_properties();
+    if (!context) {
+        early_context_init_failed = true;
+        return;
+    }
+    if (!pgraph_gl_determine_gpu_properties()) {
+        early_context_init_failed = true;
+        glo_context_destroy(context);
+        return;
+    }
     glo_context_destroy(context);
     glo_set_current(g_nv2a_context_display);
 }
 
 static void pgraph_gl_init(NV2AState *d, Error **errp)
 {
+    if (early_context_init_failed) {
+        error_setg(errp, "Failed to create NV2A shared OpenGL contexts");
+        return;
+    }
+
     PGRAPHState *pg = &d->pgraph;
 
     pg->gl_renderer_state = g_malloc0(sizeof(*pg->gl_renderer_state));

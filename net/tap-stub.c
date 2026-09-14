@@ -26,6 +26,17 @@
 #include "qapi/error.h"
 #include "tap_int.h"
 
+#ifdef XBOX
+#include "clients.h"
+
+int net_init_tap(const Netdev *netdev, const char *name,
+                 NetClientState *peer, Error **errp)
+{
+    error_setg(errp, "tap networking is unavailable in UWP");
+    return -1;
+}
+#endif
+
 int tap_open(char *ifname, int ifname_size, int *vnet_hdr,
              int vnet_hdr_required, int mq_required, Error **errp)
 {

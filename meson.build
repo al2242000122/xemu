@@ -26,6 +26,14 @@ fs = import('fs')
 
 host_os = host_machine.system()
 config_host = keyval.load(meson.current_build_dir() / 'config-host.mak')
+is_uwp = get_option('uwp')
+
+if is_uwp and host_os != 'windows'
+  error('UWP mode is only supported for Windows targets')
+endif
+if is_uwp
+  add_project_arguments('-DXBOX', language: ['c', 'cpp'])
+endif
 
 # Temporary directory used for files created while
 # configure runs. Since it is in the build directory
@@ -874,7 +882,9 @@ if host_os == 'windows'
   pathcch = cc.find_library('pathcch', required: true)
   synchronization = cc.find_library('synchronization', required: true)
   socket = cc.find_library('ws2_32', required: true)
-  winmm = cc.find_library('winmm', required: true)
+  if not is_uwp
+    winmm = cc.find_library('winmm', required: true)
+  endif
   crypt32 = cc.find_library('crypt32')
 
   win = import('windows')
@@ -1864,7 +1874,7 @@ if get_option('oss').allowed() and have_system
   endif
 endif
 dsound = not_found
-if not get_option('dsound').auto() or (host_os == 'windows' and have_system)
+if not is_uwp and (not get_option('dsound').auto() or (host_os == 'windows' and have_system))
   if cc.has_header('dsound.h')
     dsound = declare_dependency(link_args: ['-lole32', '-ldxguid'])
   endif
@@ -1890,7 +1900,7 @@ if not get_option('opengl').auto() or have_system or have_vhost_user_gpu
   if host_os == 'darwin'
     opengl_libs=['-framework', 'OpenGL']
   elif host_os == 'windows'
-    opengl_libs=['-lopengl32', '-lgdi32']
+    opengl_libs = get_option('uwp') ? ['-lopengl32'] : ['-lopengl32', '-lgdi32']
   elif host_os == 'linux'
     opengl_libs=['-lGL']
   else
@@ -2387,7 +2397,7 @@ endif
 vulkan = not_found
 libglslang = not_found
 
-if host_os == 'windows'
+if host_os == 'windows' and not is_uwp
   vulkan = declare_dependency(compile_args: ['-DVK_USE_PLATFORM_WIN32_KHR'])
 elif host_os == 'linux'
   vulkan = dependency('vulkan')
@@ -2455,6 +2465,7 @@ imgui_proj = subproject('imgui', required: true,
                            'sdl3=enabled',
                            'osx=disabled',
                            'win=disabled',
+                           'uwp=' + (is_uwp ? 'true' : 'false'),
                            'allegro5=disabled',
                         ])
 imgui = imgui_proj.get_variable('imgui_dep')
@@ -2652,6 +2663,7 @@ config_host_data.set('CONFIG_LIBUDEV', libudev.found())
 config_host_data.set('CONFIG_LINUX', host_os == 'linux')
 config_host_data.set('CONFIG_POSIX', host_os != 'windows')
 config_host_data.set('CONFIG_WIN32', host_os == 'windows')
+config_host_data.set('CONFIG_UWP', is_uwp)
 config_host_data.set('CONFIG_LZO', lzo.found())
 config_host_data.set('CONFIG_MPATH', mpathpersist.found())
 config_host_data.set('CONFIG_BLKIO', blkio.found())
@@ -4621,7 +4633,7 @@ foreach target : target_dirs
       'sources': files('system/main.c'),
       'dependencies': [sdl]
     }]
-    if host_os == 'windows' and (sdl.found() or gtk.found())
+    if not is_uwp and host_os == 'windows' and (sdl.found() or gtk.found())
       execs += [{
         'name': 'qemu-system-' + target_name + 'w',
         'win_subsystem': 'windows',
@@ -4652,14 +4664,26 @@ foreach target : target_dirs
       exe_name += '-unsigned'
     endif
 
-    emulator = executable(exe_name, exe['sources'],
-               install: true,
-               c_args: c_args,
-               dependencies: arch_deps + exe['dependencies'],
-               objects: lib.extract_all_objects(recursive: true),
-               link_depends: [block_syms, qemu_syms],
-               link_args: link_args,
-               win_subsystem: exe['win_subsystem'])
+    if is_uwp and target_type == 'system'
+      emulator = shared_library(exe_name, exe['sources'],
+                 name_prefix: '',
+                 install: true,
+                 install_dir: get_option('bindir'),
+                 c_args: c_args,
+                 dependencies: arch_deps + exe['dependencies'],
+                 objects: lib.extract_all_objects(recursive: true),
+                 link_depends: [block_syms, qemu_syms],
+                 link_args: link_args + ['-mwindows', '-Wl,--gc-sections'])
+    else
+      emulator = executable(exe_name, exe['sources'],
+                 install: true,
+                 c_args: c_args,
+                 dependencies: arch_deps + exe['dependencies'],
+                 objects: lib.extract_all_objects(recursive: true),
+                 link_depends: [block_syms, qemu_syms],
+                 link_args: link_args,
+                 win_subsystem: exe['win_subsystem'])
+    endif
 
     if host_os == 'darwin'
       icon = 'pc-bios/qemu.rsrc'

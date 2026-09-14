@@ -7,7 +7,7 @@
 
 /* These values are part of guest ABI, and can not be changed */
 typedef enum {
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     ACPI_EXTSMI_STATUS = 2,
 #endif
     ACPI_PCI_HOTPLUG_STATUS = 2,

@@ -35,6 +35,11 @@
 #include "qemu/iov.h"
 #include "qobject/qdict.h"
 #include "qobject/qstring.h"
+#ifdef CONFIG_UWP
+#define QEMU_HOST_INTERNAL
+#include "qemu/qemu-host.h"
+#undef QEMU_HOST_INTERNAL
+#endif
 #include <windows.h>
 #include <winioctl.h>
 #include <assert.h>
@@ -51,6 +56,10 @@ typedef struct RawWin32AIOData {
     size_t aio_nbytes;
     off64_t aio_offset;
     int aio_type;
+#ifdef CONFIG_UWP
+    bool brokered;
+    int64_t brokered_handle;
+#endif
 } RawWin32AIOData;
 
 typedef struct BDRVRawState {
@@ -58,6 +67,10 @@ typedef struct BDRVRawState {
     int type;
     char drive_path[16]; /* format: "d:\" */
     QEMUWin32AIOState *aio;
+#ifdef CONFIG_UWP
+    bool brokered;
+    int64_t brokered_handle;
+#endif
 } BDRVRawState;
 
 typedef struct BDRVRawReopenState {
@@ -75,7 +88,35 @@ static size_t handle_aiocb_rw(RawWin32AIOData *aiocb)
     size_t offset = 0;
     int i;
 
+#ifdef CONFIG_UWP
+    if (aiocb->brokered &&
+        qemu_host_storage_seek(aiocb->brokered_handle,
+                               aiocb->aio_offset, SEEK_SET) < 0) {
+        return 0;
+    }
+#endif
+
     for (i = 0; i < aiocb->aio_niov; i++) {
+#ifdef CONFIG_UWP
+        if (aiocb->brokered) {
+            int64_t count = (aiocb->aio_type & QEMU_AIO_WRITE) ?
+                qemu_host_storage_write(aiocb->brokered_handle,
+                                        aiocb->aio_iov[i].iov_base,
+                                        aiocb->aio_iov[i].iov_len) :
+                qemu_host_storage_read(aiocb->brokered_handle,
+                                       aiocb->aio_iov[i].iov_base,
+                                       aiocb->aio_iov[i].iov_len);
+
+            if (count < 0) {
+                break;
+            }
+            offset += count;
+            if ((size_t)count != aiocb->aio_iov[i].iov_len) {
+                break;
+            }
+            continue;
+        }
+#endif
         OVERLAPPED ov;
         DWORD ret, ret_count, len;
 
@@ -135,6 +176,12 @@ static int aio_worker(void *arg)
         }
         break;
     case QEMU_AIO_FLUSH:
+#ifdef CONFIG_UWP
+        if (aiocb->brokered) {
+            ret = qemu_host_storage_flush(aiocb->brokered_handle);
+            break;
+        }
+#endif
         if (!FlushFileBuffers(aiocb->hfile)) {
             return -EIO;
         }
@@ -149,14 +196,18 @@ static int aio_worker(void *arg)
     return ret;
 }
 
-static BlockAIOCB *paio_submit(BlockDriverState *bs, HANDLE hfile,
+static BlockAIOCB *paio_submit(BlockDriverState *bs, BDRVRawState *s,
         int64_t offset, QEMUIOVector *qiov, int count,
         BlockCompletionFunc *cb, void *opaque, int type)
 {
-    RawWin32AIOData *acb = g_new(RawWin32AIOData, 1);
+    RawWin32AIOData *acb = g_new0(RawWin32AIOData, 1);
 
     acb->bs = bs;
-    acb->hfile = hfile;
+    acb->hfile = s->hfile;
+#ifdef CONFIG_UWP
+    acb->brokered = s->brokered;
+    acb->brokered_handle = s->brokered_handle;
+#endif
     acb->aio_type = type;
 
     if (qiov) {
@@ -392,6 +443,24 @@ static int raw_open(BlockDriverState *bs, QDict *options, int flags,
 
     raw_parse_flags(flags, use_aio, &access_flags, &overlapped);
 
+#ifdef CONFIG_UWP
+    if (qemu_host_storage_path_is_brokered(filename)) {
+        int open_flags = (access_flags & GENERIC_WRITE) ? O_RDWR : O_RDONLY;
+
+        ret = qemu_host_storage_open(filename, open_flags, 0,
+                                     &s->brokered_handle);
+        if (ret < 0) {
+            error_setg_errno(errp, -ret, "Could not open '%s'", filename);
+            goto fail;
+        }
+        s->brokered = true;
+        s->hfile = INVALID_HANDLE_VALUE;
+        bs->supported_truncate_flags = BDRV_REQ_ZERO_WRITE;
+        ret = 0;
+        goto fail;
+    }
+#endif
+
     if (filename[0] && filename[1] == ':') {
         snprintf(s->drive_path, sizeof(s->drive_path), "%c:\\", filename[0]);
     } else if (filename[0] == '\\' && filename[1] == '\\') {
@@ -476,7 +545,7 @@ static BlockAIOCB *raw_aio_preadv(BlockDriverState *bs,
         return win32_aio_submit(bs, s->aio, s->hfile, offset, bytes, qiov,
                                 cb, opaque, QEMU_AIO_READ);
     } else {
-        return paio_submit(bs, s->hfile, offset, qiov, bytes,
+        return paio_submit(bs, s, offset, qiov, bytes,
                            cb, opaque, QEMU_AIO_READ);
     }
 }
@@ -491,7 +560,7 @@ static BlockAIOCB *raw_aio_pwritev(BlockDriverState *bs,
         return win32_aio_submit(bs, s->aio, s->hfile, offset, bytes, qiov,
                                 cb, opaque, QEMU_AIO_WRITE);
     } else {
-        return paio_submit(bs, s->hfile, offset, qiov, bytes,
+        return paio_submit(bs, s, offset, qiov, bytes,
                            cb, opaque, QEMU_AIO_WRITE);
     }
 }
@@ -500,7 +569,7 @@ static BlockAIOCB *raw_aio_flush(BlockDriverState *bs,
                          BlockCompletionFunc *cb, void *opaque)
 {
     BDRVRawState *s = bs->opaque;
-    return paio_submit(bs, s->hfile, 0, NULL, 0, cb, opaque, QEMU_AIO_FLUSH);
+    return paio_submit(bs, s, 0, NULL, 0, cb, opaque, QEMU_AIO_FLUSH);
 }
 
 static void raw_close(BlockDriverState *bs)
@@ -513,7 +582,14 @@ static void raw_close(BlockDriverState *bs)
         s->aio = NULL;
     }
 
-    CloseHandle(s->hfile);
+#ifdef CONFIG_UWP
+    if (s->brokered) {
+        qemu_host_storage_close(s->brokered_handle);
+    } else
+#endif
+    {
+        CloseHandle(s->hfile);
+    }
     if (bs->open_flags & BDRV_O_TEMPORARY) {
         unlink(bs->filename);
     }
@@ -532,6 +608,17 @@ static int coroutine_fn raw_co_truncate(BlockDriverState *bs, int64_t offset,
                    PreallocMode_str(prealloc));
         return -ENOTSUP;
     }
+
+#ifdef CONFIG_UWP
+    if (s->brokered) {
+        int ret = qemu_host_storage_truncate(s->brokered_handle, offset);
+
+        if (ret < 0) {
+            error_setg_errno(errp, -ret, "Could not truncate brokered file");
+        }
+        return ret;
+    }
+#endif
 
     low = offset;
     high = offset >> 32;
@@ -560,6 +647,15 @@ static int64_t coroutine_fn raw_co_getlength(BlockDriverState *bs)
     DISK_GEOMETRY_EX dg;
     DWORD count;
     BOOL status;
+
+#ifdef CONFIG_UWP
+    if (s->brokered) {
+        QemuHostStorageStat stat;
+        int ret = qemu_host_storage_stat(bs->filename, &stat);
+
+        return ret < 0 ? ret : stat.size;
+    }
+#endif
 
     switch(s->type) {
     case FTYPE_FILE:

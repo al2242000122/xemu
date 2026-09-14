@@ -14,11 +14,13 @@ chardev_ss.add(files(
   'char.c',
 ))
 if host_os == 'windows'
-  chardev_ss.add(files(
-    'char-console.c',
-    'char-win-stdio.c',
-    'char-win.c',
-  ))
+  if not is_uwp
+    chardev_ss.add(files(
+      'char-console.c',
+      'char-win-stdio.c',
+      'char-win.c',
+    ))
+  endif
 else
   chardev_ss.add(files(
       'char-fd.c',

@@ -36,6 +36,9 @@
 struct _GloContext;
 typedef struct _GloContext GloContext;
 
+/* Reuse the application's SDL window on platforms that only allow one. */
+void glo_set_host_window(void *window);
+
 /* Change current context */
 void glo_set_current(GloContext *context);
 

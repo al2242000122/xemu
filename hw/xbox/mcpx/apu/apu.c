@@ -257,6 +257,7 @@ static void se_frame(MCPXAPUState *d)
 static void *mcpx_apu_frame_thread(void *arg)
 {
     MCPXAPUState *d = MCPX_APU_DEVICE(arg);
+    SDL_Log("embedding: MCPX APU frame thread started");
     qemu_mutex_lock(&d->lock);
     while (!qatomic_read(&d->exiting)) {
         if (d->pause_requested) {
@@ -415,19 +416,28 @@ static void mcpx_apu_realize(PCIDevice *dev, Error **errp)
     qemu_cond_init(&d->cond);
     qemu_cond_init(&d->idle_cond);
 
+    SDL_Log("embedding: MCPX APU voice processor init begin");
     mcpx_apu_vp_init(d);
+    SDL_Log("embedding: MCPX APU voice processor init complete");
+    SDL_Log("embedding: MCPX APU DSP init begin");
     mcpx_apu_dsp_init(d);
+    SDL_Log("embedding: MCPX APU DSP init complete");
 
     Error *local_err = NULL;
+    SDL_Log("embedding: MCPX APU audio monitor init begin");
     mcpx_apu_monitor_init(d, &local_err);
+    SDL_Log("embedding: MCPX APU audio monitor init complete");
     if (local_err) {
         warn_reportf_err(local_err, "mcpx_apu_monitor_init failed: ");
     }
 
     qemu_add_vm_change_state_handler(mcpx_apu_vm_state_change, d);
+    SDL_Log("embedding: MCPX APU frame thread creation begin");
     qemu_thread_create(&d->apu_thread, "mcpx.apu_thread", mcpx_apu_frame_thread,
                        d, QEMU_THREAD_JOINABLE);
+    SDL_Log("embedding: MCPX APU frame thread created; waiting for idle");
     mcpx_apu_wait_for_idle(d);
+    SDL_Log("embedding: MCPX APU frame thread idle");
     qemu_mutex_unlock(&d->lock);
 }
 

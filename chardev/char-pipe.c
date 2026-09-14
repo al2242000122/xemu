@@ -29,13 +29,13 @@
 #include "qemu/option.h"
 #include "chardev/char.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
 #include "chardev/char-win.h"
-#else
+#elif !defined(_WIN32)
 #include "chardev/char-fd.h"
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
 #define MAXCONNECT 1
 #define NTIMEOUT 5000
 
@@ -116,6 +116,16 @@ static void qemu_chr_open_pipe(Chardev *chr,
     }
 }
 
+#elif defined(CONFIG_UWP)
+
+static void qemu_chr_open_pipe(Chardev *chr,
+                               ChardevBackend *backend,
+                               bool *be_opened,
+                               Error **errp)
+{
+    error_setg(errp, "pipe chardevs are not supported in UWP mode");
+}
+
 #else
 
 static void qemu_chr_open_pipe(Chardev *chr,
@@ -188,8 +198,10 @@ static void char_pipe_class_init(ObjectClass *oc, const void *data)
 
 static const TypeInfo char_pipe_type_info = {
     .name = TYPE_CHARDEV_PIPE,
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
     .parent = TYPE_CHARDEV_WIN,
+#elif defined(CONFIG_UWP)
+    .parent = TYPE_CHARDEV,
 #else
     .parent = TYPE_CHARDEV_FD,
 #endif

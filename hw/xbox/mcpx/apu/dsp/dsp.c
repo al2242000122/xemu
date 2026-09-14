@@ -119,11 +119,15 @@ DSPState *dsp_init(void *rw_opaque, dsp_scratch_rw_func scratch_rw,
     dsp->dma.scratch_rw = scratch_rw;
     dsp->dma.fifo_rw = fifo_rw;
 
+#ifndef XBOX
     if (g_config.audio.use_dsp_jit) {
         dsp_jit_init(dsp);
     } else {
+#endif
         dsp_c_init(dsp);
+#ifndef XBOX
     }
+#endif
 
     dsp_reset(dsp);
 
@@ -212,7 +216,12 @@ void dsp_sync_from_vm(DSPState *dsp)
 
 void dsp_set_engine(DSPState *dsp, bool use_jit)
 {
+#ifdef XBOX
+    use_jit = false;
+    bool currently_jit = false;
+#else
     bool currently_jit = (dsp->ops == &jit_dsp_ops);
+#endif
     if (use_jit == currently_jit) {
         return;
     }
@@ -220,11 +229,15 @@ void dsp_set_engine(DSPState *dsp, bool use_jit)
     dsp_sync_to_vm(dsp);
     dsp->ops->finalize(dsp);
 
+#ifndef XBOX
     if (use_jit) {
         dsp_jit_init(dsp);
     } else {
+#endif
         dsp_c_init(dsp);
+#ifndef XBOX
     }
+#endif
 
     dsp_sync_from_vm(dsp);
 }

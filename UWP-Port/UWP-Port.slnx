@@ -1,0 +1,10 @@
+<Solution>
+  <Configurations>
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="UWP-Port.vcxproj" Id="c315a0b5-3a6c-4489-9ad3-181c67335782">
+    <Deploy />
+  </Project>
+</Solution>

@@ -29,14 +29,11 @@ static bool load_set_thread_description(void)
     static gsize _init_once = 0;
 
     if (g_once_init_enter(&_init_once)) {
-        kernel32_module = LoadLibrary("kernel32.dll");
+        kernel32_module = GetModuleHandleW(L"kernel32.dll");
         if (kernel32_module) {
             SetThreadDescriptionFunc =
                 (pSetThreadDescription)GetProcAddress(kernel32_module,
                                                       "SetThreadDescription");
-            if (!SetThreadDescriptionFunc) {
-                FreeLibrary(kernel32_module);
-            }
         }
         g_once_init_leave(&_init_once, 1);
     }

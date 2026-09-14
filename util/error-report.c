@@ -13,6 +13,10 @@
 #include "qemu/osdep.h"
 #include "monitor/monitor.h"
 #include "qemu/error-report.h"
+#ifdef CONFIG_UWP
+#define QEMU_HOST_INTERNAL
+#include "qemu/qemu-host.h"
+#endif
 
 /*
  * @report_type is the type of message: error, warning or
@@ -187,6 +191,33 @@ G_GNUC_PRINTF(2, 0)
 static void vreport(report_type type, const char *fmt, va_list ap)
 {
     gchar *timestr;
+#ifdef CONFIG_UWP
+    va_list host_ap;
+    g_autofree char *host_message = NULL;
+    QemuHostLogLevel host_level;
+
+    if (!monitor_cur() && qemu_host_log_sink_enabled()) {
+        va_copy(host_ap, ap);
+        host_message = g_strdup_vprintf(fmt, host_ap);
+        va_end(host_ap);
+        switch (type) {
+        case REPORT_TYPE_ERROR:
+            host_level = QEMU_HOST_LOG_ERROR;
+            break;
+        case REPORT_TYPE_WARNING:
+            host_level = QEMU_HOST_LOG_WARNING;
+            break;
+        case REPORT_TYPE_INFO:
+            host_level = QEMU_HOST_LOG_INFO;
+            break;
+        default:
+            host_level = QEMU_HOST_LOG_DEBUG;
+            break;
+        }
+        qemu_host_emit_log(host_level, host_message);
+        return;
+    }
+#endif
 
     if (message_with_timestamp && !monitor_cur()) {
         timestr = real_time_iso8601();

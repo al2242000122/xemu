@@ -895,12 +895,25 @@ static bool main_loop_should_exit(int *status)
     return false;
 }
 
+bool qemu_main_loop_step(bool nonblocking, int *status)
+{
+    int local_status = EXIT_SUCCESS;
+
+    if (!status) {
+        status = &local_status;
+    }
+    if (main_loop_should_exit(status)) {
+        return true;
+    }
+    main_loop_wait(nonblocking);
+    return main_loop_should_exit(status);
+}
+
 int qemu_main_loop(void)
 {
     int status = EXIT_SUCCESS;
 
-    while (!main_loop_should_exit(&status)) {
-        main_loop_wait(false);
+    while (!qemu_main_loop_step(false, &status)) {
     }
     return status;
 }
@@ -923,7 +936,7 @@ static void qemu_run_exit_notifiers(void)
 
 void qemu_init_subsystems(void)
 {
-#ifndef XBOX
+#if !defined(XBOX) && !defined(CONFIG_UWP)
     Error *err = NULL;
 #endif
 
@@ -934,7 +947,7 @@ void qemu_init_subsystems(void)
     qemu_init_cpu_list();
     qemu_init_cpu_loop();
 
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
     qemu_init_main_loop_lock();
     qemu_mutex_lock_main_loop();
 #endif
@@ -951,7 +964,7 @@ void qemu_init_subsystems(void)
     postcopy_infrastructure_init();
     monitor_init_globals();
 
-#ifndef XBOX
+#if !defined(XBOX) && !defined(CONFIG_UWP)
     if (qcrypto_init(&err) < 0) {
         error_reportf_err(err, "cannot initialize crypto: ");
         exit(1);

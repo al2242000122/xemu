@@ -1,0 +1,34 @@
+<Page x:Class="UWP_Port.DirectXPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="#FF0D1117">
+  <Page.Resources>
+    <SolidColorBrush x:Key="Panel" Color="#F21A222C"/><SolidColorBrush x:Key="Accent" Color="#FF4CC38A"/>
+    <Style TargetType="Button"><Setter Property="Margin" Value="0,4"/><Setter Property="Padding" Value="14,9"/><Setter Property="HorizontalAlignment" Value="Stretch"/></Style>
+  </Page.Resources>
+  <Grid>
+    <SwapChainPanel x:Name="swapChainPanel"/>
+    <Grid x:Name="launcherPanel" Background="#E60D1117">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="230"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Border Background="{StaticResource Panel}" BorderBrush="#FF334152" BorderThickness="0,0,1,0" Padding="22">
+        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <StackPanel><TextBlock Text="XEMU UWP" FontFamily="Consolas" FontSize="13" Foreground="{StaticResource Accent}"/><TextBlock Text="Original Xbox" FontSize="24" FontWeight="SemiBold" Foreground="White" Margin="0,6,0,30"/></StackPanel>
+          <StackPanel Grid.Row="1"><Button Content="Início" Tag="0" Click="NavigationButton_Click"/><Button Content="Arquivos" Tag="1" Click="NavigationButton_Click"/><Button Content="Configurações" Tag="2" Click="NavigationButton_Click"/><Button Content="Logs" Tag="3" Click="NavigationButton_Click"/></StackPanel>
+          <StackPanel Grid.Row="2"><TextBlock x:Name="hostStatus" Text="● PRONTO" Foreground="{StaticResource Accent}" FontFamily="Consolas"/><TextBlock Text="OpenGL · Mesa · D3D12" Foreground="#FFAAB8C5" FontSize="12"/></StackPanel>
+        </Grid>
+      </Border>
+      <Pivot x:Name="toolTabs" Grid.Column="1">
+        <PivotItem><StackPanel Padding="38" Spacing="14" MaxWidth="760" HorizontalAlignment="Left"><TextBlock Text="xemu para Xbox/UWP" FontSize="38" FontWeight="SemiBold" Foreground="White"/><TextBlock Text="NV2A → OpenGL → Mesa Gallium D3D12" FontFamily="Consolas" Foreground="{StaticResource Accent}"/><TextBlock Text="A emulação roda sem bloquear a interface." Foreground="#FFC6D0DA"/><Button Content="▶ Iniciar xemu" Background="{StaticResource Accent}" Click="StartXemu_Click"/><Button Content="Pausar" Click="PauseXemu_Click"/><Button Content="Retomar" Click="ResumeXemu_Click"/><Button Content="Reiniciar" Click="ResetXemu_Click"/><Button Content="Encerrar emulação" Click="StopXemu_Click"/></StackPanel></PivotItem>
+        <PivotItem>
+          <StackPanel Padding="38" Spacing="10" MaxWidth="900" HorizontalAlignment="Left">
+            <TextBlock Text="Arquivos do Xbox" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
+            <TextBlock Text="Arquivos são abertos pelo broker do Windows." Foreground="#FFC6D0DA"/>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Selecionar flash ROM (BIOS)" Tag="flash" Click="SelectFile_Click"/><TextBlock x:Name="flashFileStatus" Grid.Column="1" Text="Não selecionado" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Selecionar MCPX boot ROM" Tag="bootrom" Click="SelectFile_Click"/><TextBlock x:Name="bootromFileStatus" Grid.Column="1" Text="Não selecionado" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Selecionar disco rígido" Tag="hdd" Click="SelectFile_Click"/><TextBlock x:Name="hddFileStatus" Grid.Column="1" Text="Não selecionado" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Selecionar DVD/XISO" Tag="dvd" Click="SelectFile_Click"/><TextBlock x:Name="dvdFileStatus" Grid.Column="1" Text="Não selecionado" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+          </StackPanel>
+        </PivotItem>
+        <PivotItem><StackPanel Padding="38" Spacing="12" MaxWidth="760" HorizontalAlignment="Left"><TextBlock Text="Configurações" FontSize="30" FontWeight="SemiBold" Foreground="White"/><TextBlock Text="Renderizador" Foreground="White"/><ComboBox IsEnabled="False" SelectedIndex="0"><ComboBoxItem Content="OpenGL (Mesa Gallium D3D12)"/></ComboBox><CheckBox Content="DSP em tempo real" IsChecked="True" Foreground="White"/><CheckBox Content="DSP JIT (indisponível no UWP)" IsEnabled="False" Foreground="#FFAAB8C5"/><TextBlock Text="Escala interna" Foreground="White"/><ComboBox SelectedIndex="0"><ComboBoxItem Content="1x (nativa)"/><ComboBoxItem Content="2x"/><ComboBoxItem Content="3x"/></ComboBox><TextBlock Text="Somente opções existentes no xemu desktop e expostas pela DLL." Foreground="#FFAAB8C5"/></StackPanel></PivotItem>
+        <PivotItem><StackPanel Padding="38" Spacing="12"><TextBlock Text="Logs" FontSize="30" FontWeight="SemiBold" Foreground="White"/><TextBlock Text="ApplicationData\LocalFolder\xemu.log" FontFamily="Consolas" Foreground="{StaticResource Accent}"/><TextBlock x:Name="errorText" Foreground="#FFFF8A80" TextWrapping="Wrap"/></StackPanel></PivotItem>
+      </Pivot>
+    </Grid>
+  </Grid>
+</Page>

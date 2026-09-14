@@ -449,7 +449,7 @@ typedef struct MainLoopPoll {
 void main_loop_poll_add_notifier(Notifier *notify);
 void main_loop_poll_remove_notifier(Notifier *notify);
 
-#ifdef XBOX
+#if defined(XBOX) || defined(CONFIG_UWP)
 void qemu_init_main_loop_lock(void);
 void qemu_mutex_lock_main_loop(void);
 void qemu_mutex_unlock_main_loop(void);

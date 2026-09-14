@@ -1587,7 +1587,9 @@ static void *voice_worker_thread(void *arg)
     MCPXAPUState *d = arg;
     VoiceWorkDispatch *vwd = &d->vp.voice_work_dispatch;
 
+    SDL_Log("embedding: MCPX voice worker RCU registration begin");
     rcu_register_thread();
+    SDL_Log("embedding: MCPX voice worker RCU registration complete");
     qemu_mutex_lock(&vwd->lock);
 
     int worker_id = ctz64(vwd->workers_pending);
@@ -1769,7 +1771,14 @@ static void voice_work_init(MCPXAPUState *d)
     VoiceWorkDispatch *vwd = &d->vp.voice_work_dispatch;
 
     int num_workers = g_config.audio.vp.num_workers ?: SDL_GetNumLogicalCPUCores();
+#ifdef CONFIG_UWP
+    /* Keep the UWP thread footprint deterministic. A single worker preserves
+     * asynchronous voice processing without a many-thread startup barrier. */
+    num_workers = 1;
+#endif
     vwd->num_workers = MAX(1, MIN(num_workers, MAX_VOICE_WORKERS));
+    SDL_Log("embedding: MCPX voice worker initialization: %d worker(s)",
+            vwd->num_workers);
     vwd->workers = g_malloc0_n(vwd->num_workers, sizeof(VoiceWorker));
     vwd->workers_should_exit = false;
     vwd->workers_pending = 0;
@@ -1786,7 +1795,9 @@ static void voice_work_init(MCPXAPUState *d)
         qemu_thread_create(&vwd->workers[i].thread, "mcpx.voice_worker",
                            voice_worker_thread, d, QEMU_THREAD_JOINABLE);
     }
+    SDL_Log("embedding: waiting for MCPX voice workers");
     qemu_cond_wait(&vwd->work_finished, &vwd->lock);
+    SDL_Log("embedding: MCPX voice workers ready");
     assert(!vwd->workers_pending);
     qemu_mutex_unlock(&vwd->lock);
 }

@@ -57,6 +57,7 @@ meson_options_help() {
   printf "%s\n" '                           dtrace/ftrace/log/nop/simple/syslog/ust)'
   printf "%s\n" '  --enable-tsan            enable thread sanitizer'
   printf "%s\n" '  --enable-ubsan           enable undefined behaviour sanitizer'
+  printf "%s\n" '  --enable-uwp             Build xemu as an embeddable UWP-compatible DLL'
   printf "%s\n" '  --firmwarepath=VALUES    search PATH for firmware files [share/qemu-'
   printf "%s\n" '                           firmware]'
   printf "%s\n" '  --gdb=VALUE              Path to GDB'
@@ -535,6 +536,8 @@ _meson_option_parse() {
     --disable-uadk) printf "%s" -Duadk=disabled ;;
     --enable-ubsan) printf "%s" -Dubsan=true ;;
     --disable-ubsan) printf "%s" -Dubsan=false ;;
+    --enable-uwp) printf "%s" -Duwp=true ;;
+    --disable-uwp) printf "%s" -Duwp=false ;;
     --enable-usb-redir) printf "%s" -Dusb_redir=enabled ;;
     --disable-usb-redir) printf "%s" -Dusb_redir=disabled ;;
     --enable-valgrind) printf "%s" -Dvalgrind=enabled ;;

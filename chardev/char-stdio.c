@@ -29,12 +29,22 @@
 #include "qapi/error.h"
 #include "chardev/char.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
 #include "chardev/char-win.h"
 #include "chardev/char-win-stdio.h"
-#else
+#elif !defined(_WIN32)
 #include <termios.h>
 #include "chardev/char-fd.h"
+#endif
+
+#ifdef CONFIG_UWP
+static void qemu_chr_open_stdio(Chardev *chr,
+                                ChardevBackend *backend,
+                                bool *be_opened,
+                                Error **errp)
+{
+    error_setg(errp, "stdio chardevs are not supported in UWP mode");
+}
 #endif
 
 #ifndef _WIN32
@@ -143,8 +153,10 @@ static void char_stdio_class_init(ObjectClass *oc, const void *data)
     ChardevClass *cc = CHARDEV_CLASS(oc);
 
     cc->parse = qemu_chr_parse_stdio;
-#ifndef _WIN32
+#if !defined(_WIN32) || defined(CONFIG_UWP)
     cc->open = qemu_chr_open_stdio;
+#endif
+#ifndef _WIN32
     cc->chr_set_echo = qemu_chr_set_echo_stdio;
 #endif
 }
@@ -158,8 +170,10 @@ static void char_stdio_finalize(Object *obj)
 
 static const TypeInfo char_stdio_type_info = {
     .name = TYPE_CHARDEV_STDIO,
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
     .parent = TYPE_CHARDEV_WIN_STDIO,
+#elif defined(CONFIG_UWP)
+    .parent = TYPE_CHARDEV,
 #else
     .parent = TYPE_CHARDEV_FD,
 #endif

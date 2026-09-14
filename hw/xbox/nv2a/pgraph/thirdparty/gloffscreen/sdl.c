@@ -33,13 +33,25 @@
 struct _GloContext {
     SDL_Window    *window;
     SDL_GLContext gl_context;
+    bool owns_window;
 };
+
+static SDL_Window *host_window;
+
+void glo_set_host_window(void *window)
+{
+    host_window = window;
+}
 
 /* Create an OpenGL context */
 GloContext *glo_context_create(void)
 {
     GloContext *context = (GloContext *)malloc(sizeof(GloContext));
-    assert(context != NULL);
+    if (!context) {
+        SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+                     "embedding: failed to allocate NV2A GL context");
+        return NULL;
+    }
 
     SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
@@ -56,25 +68,39 @@ GloContext *glo_context_create(void)
         SDL_GL_CONTEXT_PROFILE_MASK,
         SDL_GL_CONTEXT_PROFILE_CORE);
 
-    // Create main window
-    context->window = SDL_CreateWindow(
-        "SDL Offscreen Window",
-        640, 480,
-        SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+    context->window = host_window;
+    context->owns_window = false;
+    SDL_Log("embedding: NV2A GL context using %s SDL window",
+            context->window ? "host" : "private");
+    if (!context->window) {
+        context->window = SDL_CreateWindow(
+            "SDL Offscreen Window",
+            640, 480,
+            SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+        context->owns_window = true;
+    }
     if (context->window == NULL) {
-        fprintf(stderr, "%s: Failed to create window\n", __func__);
-        SDL_Quit();
-        exit(1);
+        SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+                     "embedding: failed to create NV2A SDL window: %s",
+                     SDL_GetError());
+        free(context);
+        return NULL;
     }
 
+    SDL_Log("embedding: NV2A shared GL context creation begin");
     context->gl_context = SDL_GL_CreateContext(context->window);
     if (context->gl_context == NULL) {
-        fprintf(stderr, "%s: Failed to create GL context\n", __func__);
-        SDL_DestroyWindow(context->window);
-        SDL_Quit();
-        exit(1);
+        SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+                     "embedding: failed to create NV2A shared GL context: %s",
+                     SDL_GetError());
+        if (context->owns_window) {
+            SDL_DestroyWindow(context->window);
+        }
+        free(context);
+        return NULL;
     }
 
+    SDL_Log("embedding: NV2A shared GL context created");
     glo_set_current(context);
 
     return context;
@@ -95,5 +121,9 @@ void glo_context_destroy(GloContext *context)
 {
     if (!context) return;
     glo_set_current(NULL);
+    SDL_GL_DestroyContext(context->gl_context);
+    if (context->owns_window) {
+        SDL_DestroyWindow(context->window);
+    }
     free(context);
 }

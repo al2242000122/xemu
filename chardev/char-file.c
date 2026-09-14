@@ -28,9 +28,9 @@
 #include "qemu/option.h"
 #include "chardev/char.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
 #include "chardev/char-win.h"
-#else
+#elif !defined(_WIN32)
 #include "chardev/char-fd.h"
 #endif
 
@@ -40,7 +40,7 @@ static void qmp_chardev_open_file(Chardev *chr,
                                   Error **errp)
 {
     ChardevFile *file = backend->u.file.data;
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
     HANDLE out;
     DWORD accessmode;
     DWORD flags;
@@ -68,6 +68,9 @@ static void qmp_chardev_open_file(Chardev *chr,
     }
 
     win_chr_set_file(chr, out, false);
+#elif defined(CONFIG_UWP)
+    (void)file;
+    error_setg(errp, "file chardevs require a brokered stream in UWP mode");
 #else
     int flags, in = -1, out;
 
@@ -139,8 +142,10 @@ static void char_file_class_init(ObjectClass *oc, const void *data)
 
 static const TypeInfo char_file_type_info = {
     .name = TYPE_CHARDEV_FILE,
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(CONFIG_UWP)
     .parent = TYPE_CHARDEV_WIN,
+#elif defined(CONFIG_UWP)
+    .parent = TYPE_CHARDEV,
 #else
     .parent = TYPE_CHARDEV_FD,
 #endif

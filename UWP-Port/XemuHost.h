@@ -1,0 +1,114 @@
+#pragma once
+
+#include <atomic>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+#include "../include/qemu/qemu-host.h"
+
+namespace UWP_Port
+{
+    class XemuHost final
+    {
+    public:
+        XemuHost();
+        ~XemuHost();
+
+        bool Start(const std::vector<std::string>& arguments = {});
+        void Stop();
+        void Pause();
+        void Resume();
+        void Reset();
+        void Shutdown();
+        bool RenderFrame();
+        bool IsRunning() const { return m_running.load(); }
+        std::string LastError() const;
+        bool AttachRenderPanel(Windows::UI::Xaml::Controls::SwapChainPanel^ panel);
+        bool UpdateRenderPanelSize(Windows::UI::Xaml::Controls::SwapChainPanel^ panel);
+
+        bool MountFile(const std::string& virtualPath,
+                       Windows::Storage::StorageFile^ file,
+                       Windows::Storage::Streams::IRandomAccessStream^ stream);
+        bool MountFolder(const std::string& virtualPath,
+                         Windows::Storage::StorageFolder^ folder);
+
+    private:
+        template<typename T> bool Resolve(T& target, const char* name);
+        bool Load();
+        void Run(std::vector<std::string> arguments);
+        void WriteDiagnostic(const std::string& message);
+        void SetError(const std::string& error);
+        static void __cdecl Log(void* opaque, QemuHostLogLevel level,
+                                const char* message);
+        static void __cdecl SDLLog(void* opaque, int category, int priority,
+                                   const char* message);
+        static void __cdecl MesaLog(void* opaque, const char* message);
+        static long __cdecl AttachMesaSwapChain(void* opaque, void* swapchain);
+        static void RetainBrokeredObject(void* opaque, void* object);
+        static void ReleaseBrokeredObject(void* opaque, void* object);
+        static int OpenBrokeredFile(void* opaque, void* storageFile,
+                                    void* randomAccessStream, int flags,
+                                    int64_t* handle);
+        static int OpenBrokeredPath(void* opaque, void* storageFolder,
+                                    const char* relativePath, int flags,
+                                    int mode, int64_t* handle);
+        static int64_t ReadBrokeredFile(void* opaque, int64_t handle,
+                                        void* buffer, size_t size);
+        static int64_t WriteBrokeredFile(void* opaque, int64_t handle,
+                                         const void* buffer, size_t size);
+        static int64_t SeekBrokeredFile(void* opaque, int64_t handle,
+                                        int64_t offset, int whence);
+        static int CloseBrokeredFile(void* opaque, int64_t handle);
+        static int StatBrokeredFile(void* opaque, void* storageFile,
+                                    void* randomAccessStream,
+                                    QemuHostStorageStat* stat);
+        static int FlushBrokeredFile(void* opaque, int64_t handle);
+        static int ReadBrokeredDirectory(void* opaque, int64_t handle,
+                                         char* name, size_t nameSize,
+                                         QemuHostStorageStat* stat);
+        static int TruncateBrokeredFile(void* opaque, int64_t handle,
+                                        uint64_t size);
+
+        HMODULE m_module;
+        HMODULE m_sdlModule;
+        HMODULE m_openGLModule;
+        HMODULE m_mesaModule;
+        std::thread m_thread;
+        std::atomic<bool> m_running;
+        std::atomic<bool> m_stop;
+        std::atomic<bool> m_firstFrameLogged;
+        mutable std::mutex m_mutex;
+        std::mutex m_logMutex;
+        std::string m_error;
+        std::wstring m_logPath;
+
+        using AttachMesa = void (__cdecl *)(void*, int, int);
+        using SetMesaSwapChainAttach = void (__cdecl *)(
+            long (__cdecl *)(void*, void*), void*);
+        using UpdateSDLPanelSize = bool (__cdecl *)(int, int, int, int);
+        AttachMesa m_attachMesa;
+        SetMesaSwapChainAttach m_setMesaSwapChainAttach;
+        UpdateSDLPanelSize m_updateSDLPanelSize;
+        Windows::UI::Xaml::Controls::SwapChainPanel^ m_renderPanel;
+
+        decltype(&qemu_host_get_api_version) m_getApiVersion;
+        decltype(&qemu_host_init) m_init;
+        decltype(&qemu_host_start) m_start;
+        decltype(&qemu_host_render_frame) m_renderFrame;
+        decltype(&qemu_host_main_loop_step) m_step;
+        decltype(&qemu_host_is_running) m_isHostRunning;
+        decltype(&qemu_host_request_stop) m_requestStop;
+        decltype(&qemu_host_pause) m_pause;
+        decltype(&qemu_host_resume) m_resume;
+        decltype(&qemu_host_reset) m_reset;
+        decltype(&qemu_host_request_shutdown) m_shutdown;
+        decltype(&qemu_host_join) m_join;
+        decltype(&qemu_host_cleanup) m_cleanup;
+        decltype(&qemu_host_register_log_callback) m_registerLog;
+        decltype(&qemu_host_set_log_file) m_setLogFile;
+        decltype(&qemu_host_register_brokered_storage_callbacks) m_registerBrokeredStorage;
+        decltype(&qemu_host_mount_brokered_file) m_mountFile;
+        decltype(&qemu_host_mount_brokered_folder) m_mountFolder;
+    };
+}

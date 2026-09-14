@@ -25,9 +25,12 @@
 
 #include "qemu/osdep.h"
 #include <windows.h>
+#ifndef CONFIG_UWP
 #include <mmsystem.h>
+#endif
 #include "system/runstate.h"
 
+#ifndef CONFIG_UWP
 static BOOL WINAPI qemu_ctrl_handler(DWORD type)
 {
     qemu_system_shutdown_request(SHUTDOWN_CAUSE_HOST_SIGNAL);
@@ -46,13 +49,16 @@ static void os_undo_timer_resolution(void)
 {
     timeEndPeriod(mm_tc.wPeriodMin);
 }
+#endif
 
 void os_setup_early_signal_handling(void)
 {
+#ifndef CONFIG_UWP
     SetConsoleCtrlHandler(qemu_ctrl_handler, TRUE);
     timeGetDevCaps(&mm_tc, sizeof(mm_tc));
     timeBeginPeriod(mm_tc.wPeriodMin);
     atexit(os_undo_timer_resolution);
+#endif
 }
 
 void os_set_line_buffering(void)
