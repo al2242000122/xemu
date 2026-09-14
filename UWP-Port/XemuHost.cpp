@@ -78,8 +78,20 @@ bool XemuHost::AttachRenderPanel(Windows::UI::Xaml::Controls::SwapChainPanel^ pa
 
     WriteDiagnostic("[display] Anexando SwapChainPanel ao SDL3 e ao Mesa");
     m_sdlModule = LoadPackagedLibrary(L"SDL3.dll", 0);
+    if (!m_sdlModule) {
+        WriteDiagnostic("[loader] SDL3.dll falhou com erro Win32 " +
+                        std::to_string(GetLastError()));
+    }
     m_mesaModule = LoadPackagedLibrary(L"gallium_wgl.dll", 0);
+    if (!m_mesaModule) {
+        WriteDiagnostic("[loader] gallium_wgl.dll falhou com erro Win32 " +
+                        std::to_string(GetLastError()));
+    }
     m_openGLModule = LoadPackagedLibrary(L"opengl32.dll", 0);
+    if (!m_openGLModule) {
+        WriteDiagnostic("[loader] opengl32.dll falhou com erro Win32 " +
+                        std::to_string(GetLastError()));
+    }
     if (!m_sdlModule || !m_mesaModule || !m_openGLModule) {
         SetError("Falha ao carregar SDL3.dll, opengl32.dll ou gallium_wgl.dll para preparar o renderer");
         return false;
@@ -145,12 +157,33 @@ long __cdecl XemuHost::AttachMesaSwapChain(void* opaque, void* swapchain)
     }
 
     Microsoft::WRL::ComPtr<IDXGISwapChain> retainedSwapChain = nativeSwapChain;
-    auto attach = [panel, retainedSwapChain]() -> HRESULT {
+    auto attach = [host, panel, retainedSwapChain]() -> HRESULT {
         Microsoft::WRL::ComPtr<ISwapChainPanelNative> panelNative;
         HRESULT result = reinterpret_cast<IUnknown*>(panel)->QueryInterface(
             IID_PPV_ARGS(&panelNative));
-        return SUCCEEDED(result) ? panelNative->SetSwapChain(retainedSwapChain.Get())
-                                 : result;
+        if (FAILED(result)) {
+            return result;
+        }
+
+        Microsoft::WRL::ComPtr<IDXGISwapChain2> swapChain2;
+        result = retainedSwapChain.As(&swapChain2);
+        if (FAILED(result)) {
+            return result;
+        }
+
+        DXGI_MATRIX_3X2_F inverseScale{};
+        inverseScale._11 = 1.0f / panel->CompositionScaleX;
+        inverseScale._22 = 1.0f / panel->CompositionScaleY;
+        result = swapChain2->SetMatrixTransform(&inverseScale);
+        if (FAILED(result)) {
+            return result;
+        }
+
+        result = panelNative->SetSwapChain(retainedSwapChain.Get());
+        if (SUCCEEDED(result)) {
+            host->m_swapChain = swapChain2;
+        }
+        return result;
     };
 
     if (panel->Dispatcher->HasThreadAccess) {
@@ -191,8 +224,25 @@ bool XemuHost::UpdateRenderPanelSize(
 
     m_attachMesa(reinterpret_cast<IInspectable *>(panel),
                  pixelWidth, pixelHeight);
-    return m_updateSDLPanelSize(logicalWidth, logicalHeight,
-                                pixelWidth, pixelHeight);
+    if (!m_updateSDLPanelSize(logicalWidth, logicalHeight,
+                              pixelWidth, pixelHeight)) {
+        return false;
+    }
+
+    if (m_swapChain) {
+        DXGI_MATRIX_3X2_F inverseScale{};
+        inverseScale._11 = 1.0f / panel->CompositionScaleX;
+        inverseScale._22 = 1.0f / panel->CompositionScaleY;
+        HRESULT result = m_swapChain->SetMatrixTransform(&inverseScale);
+        if (FAILED(result)) {
+            std::ostringstream message;
+            message << "Falha ao remover escala XAML do swapchain (0x"
+                    << std::hex << static_cast<unsigned long>(result) << ")";
+            SetError(message.str());
+            return false;
+        }
+    }
+    return true;
 }
 
 void __cdecl XemuHost::MesaLog(void* opaque, const char* message)

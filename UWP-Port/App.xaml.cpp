@@ -14,6 +14,7 @@ using namespace Windows::ApplicationModel::Activation;
 using namespace Windows::Foundation;
 using namespace Windows::Foundation::Collections;
 using namespace Windows::Storage;
+using namespace Windows::System::Profile;
 using namespace Windows::UI::Xaml;
 using namespace Windows::UI::Xaml::Controls;
 using namespace Windows::UI::Xaml::Controls::Primitives;
@@ -22,6 +23,24 @@ using namespace Windows::UI::Xaml::Input;
 using namespace Windows::UI::Xaml::Interop;
 using namespace Windows::UI::Xaml::Media;
 using namespace Windows::UI::Xaml::Navigation;
+using namespace Windows::UI::ViewManagement;
+
+namespace
+{
+bool IsXboxDevice()
+{
+	try
+	{
+		auto versionInfo = AnalyticsInfo::VersionInfo;
+		return versionInfo != nullptr &&
+			versionInfo->DeviceFamily == "Windows.Xbox";
+	}
+	catch (Platform::Exception^)
+	{
+		return false;
+	}
+}
+}
 /// <summary>
 /// Inicializa o objeto singleton do aplicativo.  Esta é a primeira linha de código criado
 /// executado e, como tal, é o equivalente lógico de main() ou WinMain().
@@ -47,6 +66,9 @@ void App::OnLaunched(Windows::ApplicationModel::Activation::LaunchActivatedEvent
 		DebugSettings->EnableFrameRateCounter = true;
 	}
 #endif
+	// This must happen before creating the XAML visual tree. Otherwise Xbox
+	// automatically enlarges the whole interface for ten-foot presentation.
+	ConfigureWindowBounds();
 
 	auto rootFrame = dynamic_cast<Frame^>(Window::Current->Content);
 
@@ -107,6 +129,25 @@ void App::OnLaunched(Windows::ApplicationModel::Activation::LaunchActivatedEvent
 	
 	// Verifique se a janela atual está ativa
 	Window::Current->Activate();
+}
+
+void App::ConfigureWindowBounds()
+{
+	try
+	{
+		if (!IsXboxDevice())
+		{
+			return;
+		}
+
+		ApplicationViewScaling::TrySetDisableLayoutScaling(true);
+		auto view = ApplicationView::GetForCurrentView();
+		view->SetDesiredBoundsMode(ApplicationViewBoundsMode::UseCoreWindow);
+	}
+	catch (Platform::Exception^)
+	{
+		// Retain the system-selected bounds if this API is unavailable.
+	}
 }
 /// <summary>
 /// Chamado quando a execução do aplicativo está sendo suspensa.  O estado do aplicativo é salvo

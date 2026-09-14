@@ -91,6 +91,7 @@ namespace UWP_Port
         SetMesaSwapChainAttach m_setMesaSwapChainAttach;
         UpdateSDLPanelSize m_updateSDLPanelSize;
         Windows::UI::Xaml::Controls::SwapChainPanel^ m_renderPanel;
+        Microsoft::WRL::ComPtr<IDXGISwapChain2> m_swapChain;
 
         decltype(&qemu_host_get_api_version) m_getApiVersion;
         decltype(&qemu_host_init) m_init;
