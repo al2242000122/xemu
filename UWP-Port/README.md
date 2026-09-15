@@ -36,10 +36,10 @@ build-uwp/mesa/src/gallium/targets/libgl-gdi/opengl32.dll
 build-uwp/mesa/src/gallium/targets/wgl/gallium_wgl.dll
 ```
 
-The SDL3 include directory, SDL3 runtime, and MSYS2 UCRT64 runtime directory
-must also be configured in `UWP-Port.vcxproj`. Use MSBuild properties or paths
-appropriate for the local development environment. Do not copy development
-machine paths into distributable documentation or packages.
+The SDL3 include/runtime directory and MSYS2 UCRT64 runtime directory are
+configured through the `SDL3UwpRoot` and `Msys2Ucrt64Root` MSBuild properties.
+The project provides sibling-directory defaults, and CI supplies both
+properties explicitly.
 
 The packaged application must contain at least:
 
@@ -107,6 +107,13 @@ msbuild .\UWP-Port\UWP-Port.vcxproj `
   /m
 ```
 
+When the dependencies are not in the default sibling directories, append:
+
+```powershell
+/p:SDL3UwpRoot=<SDL3_UWP-directory> `
+/p:Msys2Ucrt64Root=<MSYS2-UCRT64-directory>
+```
+
 The signed MSIX, certificate, symbols, and dependency packages are generated
 under:
 
@@ -116,6 +123,17 @@ UWP-Port/AppPackages/UWP-Port/<package-version>_x64_Test/
 
 Increment the four-part `Identity Version` in `Package.appxmanifest` before
 creating an update for an already installed PC or Xbox package.
+
+## GitHub Actions
+
+The `Build UWP-Port` workflow performs the complete x64 Release build on a
+Windows runner. It checks out `rodrigoandrigo/SDL3_UWP`, builds its WinRT
+project, builds the xemu embedding DLL, strips unneeded symbols from that DLL,
+builds Mesa Gallium D3D12, packages UWP-Port, and uploads the MSIX, certificate,
+symbols, and framework dependencies as the `UWP-Port-x64-Release` artifact.
+
+The workflow runs when relevant sources change and can also be started manually
+from the GitHub Actions page.
 
 ## Runtime setup
 

@@ -102,6 +102,9 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros">
+    <SDL3UwpRoot Condition="'$(SDL3UwpRoot)'==''">$(ProjectDir)..\..\SDL3_UWP</SDL3UwpRoot>
+    <Msys2Ucrt64Root Condition="'$(Msys2Ucrt64Root)'=='' and '$(MSYS2_ROOT)'!=''">$(MSYS2_ROOT)\ucrt64</Msys2Ucrt64Root>
+    <Msys2Ucrt64Root Condition="'$(Msys2Ucrt64Root)'==''">$(ProjectDir)..\..\msys64\ucrt64</Msys2Ucrt64Root>
     <GenerateAppInstallerFile>True</GenerateAppInstallerFile>
     <PackageCertificateKeyFile>UWP-Port_TemporaryKey.pfx</PackageCertificateKeyFile>
     <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
@@ -109,7 +112,7 @@
     <GenerateTestArtifacts>False</GenerateTestArtifacts>
     <AppxBundle>Always</AppxBundle>
     <AppxBundlePlatforms>x64</AppxBundlePlatforms>
-    <AppInstallerUri>C:\Users\rodri\Dev1\Projetos\xemu\UWP-Port\AppPackages</AppInstallerUri>
+    <AppInstallerUri>$(ProjectDir)AppPackages</AppInstallerUri>
     <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
@@ -120,7 +123,7 @@
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);C:\Users\rodri\Dev1\Projetos\SDL3-uwp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);$(SDL3UwpRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -134,7 +137,7 @@
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);C:\Users\rodri\Dev1\Projetos\SDL3-uwp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);$(SDL3UwpRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -148,7 +151,7 @@
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);C:\Users\rodri\Dev1\Projetos\SDL3-uwp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);$(SDL3UwpRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -162,7 +165,7 @@
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);C:\Users\rodri\Dev1\Projetos\SDL3-uwp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);$(SDL3UwpRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -176,7 +179,7 @@
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);C:\Users\rodri\Dev1\Projetos\SDL3-uwp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);$(SDL3UwpRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
       <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -190,7 +193,7 @@
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);C:\Users\rodri\Dev1\Projetos\SDL3-uwp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);$(SDL3UwpRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -305,7 +308,7 @@
       <Link>gallium_wgl.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="C:\Users\rodri\Dev1\Projetos\SDL3-uwp\VisualC-WinRT\x64\Release\SDL-UWP\SDL3.dll">
+    <Content Include="$(SDL3UwpRoot)\VisualC-WinRT\x64\$(Configuration)\SDL-UWP\SDL3.dll">
       <Link>SDL3.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -313,7 +316,7 @@
       <Link>dxil.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="C:\msys64\ucrt64\bin\libbrotlicommon.dll;C:\msys64\ucrt64\bin\libbrotlidec.dll;C:\msys64\ucrt64\bin\libcrypto-3-x64.dll;C:\msys64\ucrt64\bin\libcurl-4.dll;C:\msys64\ucrt64\bin\libepoxy-0.dll;C:\msys64\ucrt64\bin\libgcc_s_seh-1.dll;C:\msys64\ucrt64\bin\libglib-2.0-0.dll;C:\msys64\ucrt64\bin\libiconv-2.dll;C:\msys64\ucrt64\bin\libidn2-0.dll;C:\msys64\ucrt64\bin\libintl-8.dll;C:\msys64\ucrt64\bin\libnghttp2-14.dll;C:\msys64\ucrt64\bin\libnghttp3-9.dll;C:\msys64\ucrt64\bin\libngtcp2-16.dll;C:\msys64\ucrt64\bin\libngtcp2_crypto_ossl-0.dll;C:\msys64\ucrt64\bin\libpcre2-8-0.dll;C:\msys64\ucrt64\bin\libpsl-5.dll;C:\msys64\ucrt64\bin\libsamplerate-0.dll;C:\msys64\ucrt64\bin\libslirp-0.dll;C:\msys64\ucrt64\bin\libssh2-1.dll;C:\msys64\ucrt64\bin\libssl-3-x64.dll;C:\msys64\ucrt64\bin\libstdc++-6.dll;C:\msys64\ucrt64\bin\libunistring-5.dll;C:\msys64\ucrt64\bin\libusb-1.0.dll;C:\msys64\ucrt64\bin\libwinpthread-1.dll;C:\msys64\ucrt64\bin\libxxhash.dll;C:\msys64\ucrt64\bin\libzstd.dll;C:\msys64\ucrt64\bin\zlib1.dll">
+    <Content Include="$(Msys2Ucrt64Root)\bin\libbrotlicommon.dll;$(Msys2Ucrt64Root)\bin\libbrotlidec.dll;$(Msys2Ucrt64Root)\bin\libcrypto-3-x64.dll;$(Msys2Ucrt64Root)\bin\libcurl-4.dll;$(Msys2Ucrt64Root)\bin\libepoxy-0.dll;$(Msys2Ucrt64Root)\bin\libgcc_s_seh-1.dll;$(Msys2Ucrt64Root)\bin\libglib-2.0-0.dll;$(Msys2Ucrt64Root)\bin\libiconv-2.dll;$(Msys2Ucrt64Root)\bin\libidn2-0.dll;$(Msys2Ucrt64Root)\bin\libintl-8.dll;$(Msys2Ucrt64Root)\bin\libnghttp2-14.dll;$(Msys2Ucrt64Root)\bin\libnghttp3-9.dll;$(Msys2Ucrt64Root)\bin\libngtcp2-16.dll;$(Msys2Ucrt64Root)\bin\libngtcp2_crypto_ossl-0.dll;$(Msys2Ucrt64Root)\bin\libpcre2-8-0.dll;$(Msys2Ucrt64Root)\bin\libpsl-5.dll;$(Msys2Ucrt64Root)\bin\libsamplerate-0.dll;$(Msys2Ucrt64Root)\bin\libslirp-0.dll;$(Msys2Ucrt64Root)\bin\libssh2-1.dll;$(Msys2Ucrt64Root)\bin\libssl-3-x64.dll;$(Msys2Ucrt64Root)\bin\libstdc++-6.dll;$(Msys2Ucrt64Root)\bin\libunistring-5.dll;$(Msys2Ucrt64Root)\bin\libusb-1.0.dll;$(Msys2Ucrt64Root)\bin\libwinpthread-1.dll;$(Msys2Ucrt64Root)\bin\libxxhash.dll;$(Msys2Ucrt64Root)\bin\libzstd.dll;$(Msys2Ucrt64Root)\bin\zlib1.dll">
       <Link>%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

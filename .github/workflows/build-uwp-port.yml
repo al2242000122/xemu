@@ -1,0 +1,213 @@
+name: Build UWP-Port
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-uwp-port.yml'
+      - 'UWP-Port/**'
+      - 'configs/meson/mesa-uwp-x64.ini'
+      - 'thirdparty/mesa/**'
+      - 'include/qemu/qemu-host.h'
+      - 'system/host.c'
+      - 'meson.build'
+      - 'meson_options.txt'
+  pull_request:
+    paths:
+      - '.github/workflows/build-uwp-port.yml'
+      - 'UWP-Port/**'
+      - 'configs/meson/mesa-uwp-x64.ini'
+      - 'thirdparty/mesa/**'
+      - 'include/qemu/qemu-host.h'
+      - 'system/host.c'
+      - 'meson.build'
+      - 'meson_options.txt'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: UWP-Port (Release, x64)
+    runs-on: windows-2025
+    timeout-minutes: 180
+    env:
+      SDL3_UWP_ROOT: ${{ github.workspace }}\SDL3_UWP
+      MSYS2_UCRT64_ROOT: C:\msys64\ucrt64
+      PYTHONUTF8: '1'
+
+    steps:
+      - name: Check out xemu
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check out SDL3_UWP
+        uses: actions/checkout@v4
+        with:
+          repository: rodrigoandrigo/SDL3_UWP
+          path: SDL3_UWP
+
+      - name: Set up MSYS2 UCRT64 dependencies
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            bison
+            flex
+            git
+            make
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-libepoxy
+            mingw-w64-ucrt-x86_64-libsamplerate
+            mingw-w64-ucrt-x86_64-libslirp
+            mingw-w64-ucrt-x86_64-libusb
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pixman
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-sdl3
+            mingw-w64-ucrt-x86_64-xxhash
+            mingw-w64-ucrt-x86_64-zstd
+
+      - name: Configure MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Add build tools to PATH
+        shell: pwsh
+        run: |
+          "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "C:\msys64\ucrt64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build SDL3_UWP
+        shell: pwsh
+        run: |
+          msbuild "$env:SDL3_UWP_ROOT\VisualC-WinRT\SDL-UWP.sln" `
+            /t:Build `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:PlatformToolset=v143 `
+            /m
+          $sdl = "$env:SDL3_UWP_ROOT\VisualC-WinRT\x64\Release\SDL-UWP\SDL3.dll"
+          if (-not (Test-Path -LiteralPath $sdl)) {
+            throw "SDL3_UWP did not produce SDL3.dll at the expected location."
+          }
+
+      - name: Configure xemu UWP DLL
+        shell: msys2 {0}
+        run: |
+          mkdir -p build-uwp-embed
+          cd build-uwp-embed
+          ../configure \
+            --target-list=i386-softmmu \
+            --enable-uwp \
+            --enable-slirp \
+            --enable-opengl \
+            --enable-sdl \
+            --disable-vulkan \
+            --disable-werror \
+            --disable-docs \
+            --audio-drv-list=sdl
+
+      - name: Build and strip xemu UWP DLL
+        shell: msys2 {0}
+        run: |
+          ninja -C build-uwp-embed
+          test -f build-uwp-embed/qemu-system-i386.dll
+          before=$(stat -c '%s' build-uwp-embed/qemu-system-i386.dll)
+          strip --strip-unneeded build-uwp-embed/qemu-system-i386.dll
+          after=$(stat -c '%s' build-uwp-embed/qemu-system-i386.dll)
+          echo "qemu-system-i386.dll: ${before} bytes before strip, ${after} bytes after strip"
+          objdump -p build-uwp-embed/qemu-system-i386.dll | grep -q qemu_host_get_api_version
+
+      - name: Install Mesa build Python dependencies
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check meson mako packaging pyyaml
+
+      - name: Configure Mesa UWP D3D12
+        shell: pwsh
+        run: |
+          meson setup build-uwp\mesa thirdparty\mesa `
+            --native-file configs\meson\mesa-uwp-x64.ini `
+            --buildtype release `
+            --default-library static `
+            -Duwp=true `
+            -Dplatforms=windows `
+            -Dopengl=true `
+            -Dgallium-drivers=d3d12 `
+            -Dgallium-d3d12-graphics=enabled `
+            -Dgallium-d3d12-video=enabled `
+            -Dvideo-codecs=all `
+            -Dvulkan-drivers= `
+            -Dllvm=disabled `
+            -Dglx=disabled `
+            -Degl=disabled `
+            -Dgles1=disabled `
+            -Dgles2=disabled `
+            -Dgbm=disabled `
+            -Dshared-glapi=disabled `
+            -Dmicrosoft-clc=disabled `
+            -Dbuild-tests=false `
+            -Dgallium-wgl-dll-name=gallium_wgl
+
+      - name: Build Mesa UWP D3D12
+        shell: pwsh
+        run: |
+          meson compile -C build-uwp\mesa
+          $required = @(
+            'build-uwp\mesa\src\gallium\targets\libgl-gdi\opengl32.dll',
+            'build-uwp\mesa\src\gallium\targets\wgl\gallium_wgl.dll'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path -LiteralPath $file)) {
+              throw "Mesa did not produce $file"
+            }
+          }
+
+      - name: Build and package UWP-Port
+        shell: pwsh
+        run: |
+          if (Test-Path -LiteralPath 'UWP-Port\AppPackages') {
+            Remove-Item -LiteralPath 'UWP-Port\AppPackages' -Recurse -Force
+          }
+          msbuild UWP-Port\UWP-Port.vcxproj `
+            /t:Rebuild `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:PlatformToolset=v143 `
+            "/p:SDL3UwpRoot=$env:SDL3_UWP_ROOT" `
+            "/p:Msys2Ucrt64Root=$env:MSYS2_UCRT64_ROOT" `
+            /p:AppxBundle=Never `
+            /p:UapAppxPackageBuildMode=SideloadOnly `
+            /m
+
+      - name: Verify package
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem UWP-Port\AppPackages -Recurse -Filter *.msix)
+          if ($packages.Count -ne 1) {
+            throw "Expected exactly one MSIX package, found $($packages.Count)."
+          }
+          Write-Host "Package: $($packages[0].FullName)"
+
+      - name: Upload UWP-Port package
+        uses: actions/upload-artifact@v4
+        with:
+          name: UWP-Port-x64-Release
+          path: |
+            UWP-Port/AppPackages/**/*.msix
+            UWP-Port/AppPackages/**/*.cer
+            UWP-Port/AppPackages/**/*.appxsym
+            UWP-Port/AppPackages/**/Dependencies/**
+          if-no-files-found: error
+          compression-level: 0
