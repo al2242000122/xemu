@@ -92,11 +92,11 @@ jobs:
       - name: Build SDL3_UWP
         shell: pwsh
         run: |
-          msbuild "$env:SDL3_UWP_ROOT\VisualC-WinRT\SDL-UWP.sln" `
+          msbuild "$env:SDL3_UWP_ROOT\VisualC-WinRT\SDL-UWP.vcxproj" `
             /t:Build `
             /p:Configuration=Release `
             /p:Platform=x64 `
-            /p:PlatformToolset=v143 `
+            /p:PlatformToolset=v145 `
             /m
           $sdl = "$env:SDL3_UWP_ROOT\VisualC-WinRT\x64\Release\SDL-UWP\SDL3.dll"
           if (-not (Test-Path -LiteralPath $sdl)) {
@@ -184,7 +184,7 @@ jobs:
             /t:Rebuild `
             /p:Configuration=Release `
             /p:Platform=x64 `
-            /p:PlatformToolset=v143 `
+            /p:PlatformToolset=v145 `
             "/p:SDL3UwpRoot=$env:SDL3_UWP_ROOT" `
             "/p:Msys2Ucrt64Root=$env:MSYS2_UCRT64_ROOT" `
             /p:AppxBundle=Never `
