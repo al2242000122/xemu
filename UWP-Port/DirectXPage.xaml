@@ -124,7 +124,8 @@
 
               <TextBlock Text="Network" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
               <CheckBox x:Name="networkEnabled" Content="Enable network" Foreground="White"/>
-              <TextBlock Text="Backend" Foreground="White"/><ComboBox x:Name="networkBackend"><ComboBoxItem Content="NAT"/><ComboBoxItem Content="UDP"/></ComboBox>
+              <TextBlock Text="Backend" Foreground="White"/><ComboBox x:Name="networkBackend"><ComboBoxItem Content="NAT (Internet / Insignia)"/><ComboBoxItem Content="UDP tunnel"/></ComboBox>
+              <TextBlock Text="NAT provides DHCP, DNS, TCP and UDP access inside the UWP sandbox. UDP tunnel connects two xemu instances and requires reachable endpoints." Foreground="#FFB7C2D0" TextWrapping="Wrap"/>
               <TextBlock Text="Local UDP address" Foreground="White"/><TextBox x:Name="udpBindAddress" PlaceholderText="0.0.0.0:9368"/>
               <TextBlock Text="Remote UDP address" Foreground="White"/><TextBox x:Name="udpRemoteAddress" PlaceholderText="1.2.3.4:9368"/>
               <TextBlock Text="NAT forwarding (one rule per line: tcp|udp,host port,Xbox port)" Foreground="White"/><TextBox x:Name="natForwardPorts" AcceptsReturn="True" Height="90" TextWrapping="NoWrap" PlaceholderText="tcp,8080,80" FontFamily="Consolas"/>

@@ -333,7 +333,7 @@ void DirectXPage::LoadSettings()
 	useHrtf->IsChecked = ReadBool("audio.hrtf", true);
 	volumeLimit->Value = ReadDouble("audio.volume_limit", 1.0);
 	voiceWorkers->Value = ReadInt("audio.vp.num_workers", 0);
-	networkEnabled->IsChecked = ReadBool("net.enable", false);
+	networkEnabled->IsChecked = ReadBool("net.enable", true);
 	networkBackend->SelectedIndex = ReadInt("net.backend", 0);
 	udpBindAddress->Text = ReadString("net.udp.bind_addr", "0.0.0.0:9368");
 	udpRemoteAddress->Text = ReadString("net.udp.remote_addr", "1.2.3.4:9368");

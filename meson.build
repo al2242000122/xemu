@@ -1331,6 +1331,10 @@ if not get_option('slirp').auto() or have_system
   endif
 endif
 
+if is_uwp and not slirp.found()
+  error('UWP builds require libslirp for NAT networking; configure with --enable-slirp')
+endif
+
 enable_passt = get_option('passt') \
   .require(host_os == 'linux', error_message: 'passt is supported only on Linux') \
   .require(gio.found(), error_message: 'passt requires gio') \

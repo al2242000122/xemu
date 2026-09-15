@@ -38,7 +38,7 @@
 #include "net/slirp.h"
 #include <libslirp.h>
 #endif
-#if defined(_WIN32) && !defined(XBOX)
+#if defined(_WIN32) && !defined(XBOX) && !defined(CONFIG_UWP)
 #include <pcap/pcap.h>
 #endif
 #include "xemu-notifications.h"
@@ -73,7 +73,7 @@ void xemu_net_enable(void)
         qdict_put_str(qdict, "udp",       g_config.net.udp.remote_addr);
         qdict_put_str(qdict, "localaddr", g_config.net.udp.bind_addr);
     } else if (g_config.net.backend == CONFIG_NET_BACKEND_PCAP) {
-#if defined(XBOX)
+#if defined(XBOX) || defined(CONFIG_UWP)
         xemu_queue_error_message("PCAP networking is unavailable in UWP");
         return;
 #elif defined(_WIN32)
@@ -90,8 +90,14 @@ void xemu_net_enable(void)
         return;
     }
 
-    QemuOpts *opts = qemu_opts_from_qdict(qemu_find_opts("netdev"), qdict, &error_abort);
+    QemuOpts *opts = qemu_opts_from_qdict(qemu_find_opts("netdev"), qdict,
+                                          &local_err);
     qobject_unref(qdict);
+    if (!opts) {
+        xemu_queue_error_message(error_get_pretty(local_err));
+        error_report_err(local_err);
+        return;
+    }
     netdev_add(opts, &local_err);
     if (local_err) {
         qemu_opts_del(opts);
@@ -107,8 +113,14 @@ void xemu_net_enable(void)
     qdict_put_str(qdict, "type",   "hubport");
     qdict_put_int(qdict, "hubid",  0);
     qdict_put_str(qdict, "netdev", id);
-    opts = qemu_opts_from_qdict(qemu_find_opts("netdev"), qdict, &error_abort);
+    opts = qemu_opts_from_qdict(qemu_find_opts("netdev"), qdict, &local_err);
     qobject_unref(qdict);
+    if (!opts) {
+        xemu_queue_error_message(error_get_pretty(local_err));
+        error_report_err(local_err);
+        xemu_net_disable();
+        return;
+    }
     netdev_add(opts, &local_err);
     if (local_err) {
         qemu_opts_del(opts);
@@ -121,7 +133,11 @@ void xemu_net_enable(void)
     if (g_config.net.backend == CONFIG_NET_BACKEND_NAT) {
 #ifdef CONFIG_SLIRP
         void *s = slirp_get_state_from_netdev(id);
-        assert(s != NULL);
+        if (!s) {
+            xemu_queue_error_message("NAT backend did not initialize");
+            xemu_net_disable();
+            return;
+        }
 
         struct in_addr host_addr = { .s_addr = INADDR_ANY };
         struct in_addr guest_addr = { .s_addr = 0 };
