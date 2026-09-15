@@ -41,6 +41,7 @@ namespace UWP_Port
 		void FocusEmulatorInput();
 		void HideSystemPointer();
 		void UpdateStartButtonState();
+		void RefreshLogView();
 
 		// Outros manipuladores de eventos.
 		void AppBarButton_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
@@ -51,8 +52,12 @@ namespace UWP_Port
 		void ResetXemu_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void StopXemu_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void SaveSettings_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void AutoSaveSettings_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void AutoSaveSettings_SelectionChanged(Platform::Object^ sender, Windows::UI::Xaml::Controls::SelectionChangedEventArgs^ e);
+		void AutoSaveSettings_ValueChanged(Platform::Object^ sender, Windows::UI::Xaml::Controls::Primitives::RangeBaseValueChangedEventArgs^ e);
+		void WireAutomaticSettings();
 		void LoadSettings();
-		bool SaveSettings();
+		bool SaveSettings(bool saveNetwork);
 		void SelectFile_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void SelectFolder_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void MountXboxFile(Windows::Storage::StorageFile^ file,
@@ -75,6 +80,7 @@ namespace UWP_Port
 		bool m_dvdReady;
 		Windows::UI::Core::CoreCursor^ m_savedSystemPointerCursor;
 		bool m_systemPointerHidden;
+		unsigned int m_logRefreshFrames;
 	};
 }
 

@@ -10,7 +10,7 @@
       <Border Background="{StaticResource Panel}" BorderBrush="#FF334152" BorderThickness="0,0,1,0" Padding="22">
         <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <StackPanel><TextBlock Text="XEMU UWP" FontFamily="Consolas" FontSize="13" Foreground="{StaticResource Accent}"/><TextBlock Text="Original Xbox" FontSize="24" FontWeight="SemiBold" Foreground="White" Margin="0,6,0,30"/></StackPanel>
-          <StackPanel Grid.Row="1"><Button Content="Home" Tag="0" Click="NavigationButton_Click"/><Button Content="Files" Tag="1" Click="NavigationButton_Click"/><Button Content="Folders and Memory Units" Tag="2" Click="NavigationButton_Click"/><Button Content="Settings" Tag="3" Click="NavigationButton_Click"/><Button Content="Logs" Tag="4" Click="NavigationButton_Click"/></StackPanel>
+          <StackPanel Grid.Row="1"><Button Content="Home" Tag="0" Click="NavigationButton_Click"/><Button Content="Files" Tag="1" Click="NavigationButton_Click"/><Button Content="Storage" Tag="2" Click="NavigationButton_Click"/><Button Content="Settings" Tag="3" Click="NavigationButton_Click"/><Button Content="Network" Tag="4" Click="NavigationButton_Click"/><Button Content="Logs" Tag="5" Click="NavigationButton_Click"/></StackPanel>
           <StackPanel Grid.Row="2"><TextBlock x:Name="hostStatus" Text="● READY" Foreground="{StaticResource Accent}" FontFamily="Consolas"/><TextBlock Text="OpenGL · Mesa · D3D12" Foreground="#FFAAB8C5" FontSize="12"/></StackPanel>
         </Grid>
       </Border>
@@ -50,7 +50,7 @@
         <PivotItem>
           <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Padding="38" Spacing="10" MaxWidth="900" HorizontalAlignment="Left">
-            <TextBlock Text="Folders and Memory Units" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
+            <TextBlock Text="Storage" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
             <TextBlock Text="Optional locations and memory units accessed through the Windows broker." Foreground="#FFC6D0DA" TextWrapping="Wrap"/>
             <TextBlock Text="Folders" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,14,0,0"/>
             <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Screenshots folder" Tag="screenshots" Click="SelectFolder_Click"/><TextBlock x:Name="screenshotFolderStatus" Grid.Column="1" Text="Application default" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
@@ -71,7 +71,7 @@
           <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Padding="38" Spacing="12" MaxWidth="900" HorizontalAlignment="Left">
               <TextBlock Text="xemu settings" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
-              <TextBlock Text="Values are saved and applied to the DLL on the next startup." Foreground="#FFC6D0DA"/>
+              <TextBlock Text="Changes are saved automatically and applied to the DLL on the next startup." Foreground="#FFC6D0DA"/>
 
               <TextBlock Text="General and performance" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
               <CheckBox x:Name="checkUpdates" Content="Check for updates" Foreground="White"/>
@@ -120,9 +120,19 @@
               <CheckBox x:Name="useDspJit" Content="DSP JIT" Foreground="White"/>
               <CheckBox x:Name="useHrtf" Content="HRTF spatial audio" Foreground="White"/>
               <TextBlock Text="Volume limit" Foreground="White"/><Slider x:Name="volumeLimit" Minimum="0" Maximum="1" StepFrequency="0.05" TickFrequency="0.25" TickPlacement="BottomRight"/>
-              <TextBlock Text="Voice workers (0 = automatic)" Foreground="White"/><Slider x:Name="voiceWorkers" Minimum="0" Maximum="8" StepFrequency="1" TickFrequency="1" TickPlacement="BottomRight"/>
+              <TextBlock Text="Voice workers (0 = automatic)" Foreground="White"/><Slider x:Name="voiceWorkers" Minimum="0" Maximum="16" StepFrequency="1" TickFrequency="1" TickPlacement="BottomRight"/>
 
-              <TextBlock Text="Network" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
+              <TextBlock Text="System" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
+              <TextBlock Text="Xbox memory" Foreground="White"/><ComboBox x:Name="memoryLimit"><ComboBoxItem Content="64 MB"/><ComboBoxItem Content="128 MB"/></ComboBox>
+              <TextBlock Text="Video cable (AV Pack)" Foreground="White"/><ComboBox x:Name="avPack"><ComboBoxItem Content="SCART"/><ComboBoxItem Content="HDTV"/><ComboBoxItem Content="VGA"/><ComboBoxItem Content="RFU"/><ComboBoxItem Content="S-Video"/><ComboBoxItem Content="Composite"/><ComboBoxItem Content="None"/></ComboBox>
+            </StackPanel>
+          </ScrollViewer>
+        </PivotItem>
+        <PivotItem>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Padding="38" Spacing="12" MaxWidth="900" HorizontalAlignment="Left">
+              <TextBlock Text="Network" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
+              <TextBlock Text="Configure the Xbox network backend. Network changes are applied only after selecting Save settings." Foreground="#FFC6D0DA" TextWrapping="Wrap"/>
               <CheckBox x:Name="networkEnabled" Content="Enable network" Foreground="White"/>
               <TextBlock Text="Backend" Foreground="White"/><ComboBox x:Name="networkBackend"><ComboBoxItem Content="NAT (Internet / Insignia)"/><ComboBoxItem Content="UDP tunnel"/></ComboBox>
               <TextBlock Text="NAT provides DHCP, DNS, TCP and UDP access inside the UWP sandbox. UDP tunnel connects two xemu instances and requires reachable endpoints." Foreground="#FFB7C2D0" TextWrapping="Wrap"/>
@@ -130,15 +140,19 @@
               <TextBlock Text="Remote UDP address" Foreground="White"/><TextBox x:Name="udpRemoteAddress" PlaceholderText="1.2.3.4:9368"/>
               <TextBlock Text="NAT forwarding (one rule per line: tcp|udp,host port,Xbox port)" Foreground="White"/><TextBox x:Name="natForwardPorts" AcceptsReturn="True" Height="90" TextWrapping="NoWrap" PlaceholderText="tcp,8080,80" FontFamily="Consolas"/>
               <TextBlock Text="PCAP is not offered because it is unavailable in the UWP build." Foreground="#FFAAB8C5"/>
-
-              <TextBlock Text="System" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
-              <TextBlock Text="Xbox memory" Foreground="White"/><ComboBox x:Name="memoryLimit"><ComboBoxItem Content="64 MB"/><ComboBoxItem Content="128 MB"/></ComboBox>
-              <TextBlock Text="Video cable (AV Pack)" Foreground="White"/><ComboBox x:Name="avPack"><ComboBoxItem Content="SCART"/><ComboBoxItem Content="HDTV"/><ComboBoxItem Content="VGA"/><ComboBoxItem Content="RFU"/><ComboBoxItem Content="S-Video"/><ComboBoxItem Content="Composite"/><ComboBoxItem Content="None"/></ComboBox>
               <Button Content="Save settings" Background="{StaticResource Accent}" Click="SaveSettings_Click" Margin="0,16,0,30"/>
             </StackPanel>
           </ScrollViewer>
         </PivotItem>
-        <PivotItem><StackPanel Padding="38" Spacing="12"><TextBlock Text="Logs" FontSize="30" FontWeight="SemiBold" Foreground="White"/><TextBlock Text="ApplicationData\LocalFolder\xemu.log" FontFamily="Consolas" Foreground="{StaticResource Accent}"/><TextBlock x:Name="errorText" Foreground="#FFFF8A80" TextWrapping="Wrap"/></StackPanel></PivotItem>
+        <PivotItem>
+          <Grid Padding="38" RowSpacing="12">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <TextBlock Text="Logs" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
+            <TextBlock Grid.Row="1" Text="ApplicationData\LocalFolder\xemu.log — latest 256 KB" FontFamily="Consolas" Foreground="{StaticResource Accent}"/>
+            <TextBlock x:Name="errorText" Grid.Row="2" Foreground="#FFFF8A80" TextWrapping="Wrap"/>
+            <TextBox x:Name="logText" Grid.Row="3" FontFamily="Consolas" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+          </Grid>
+        </PivotItem>
       </Pivot>
     </Grid>
   </Grid>

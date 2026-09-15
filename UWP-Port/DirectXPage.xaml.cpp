@@ -6,6 +6,7 @@
 #include "pch.h"
 #include "DirectXPage.xaml.h"
 
+#include <cmath>
 #include <sstream>
 
 using namespace UWP_Port;
@@ -38,25 +39,56 @@ IPropertySet^ SettingsValues()
 bool ReadBool(String^ key, bool fallback)
 {
 	auto values = SettingsValues();
-	return values->HasKey(key) ? safe_cast<bool>(values->Lookup(key)) : fallback;
+	if (!values->HasKey(key)) return fallback;
+	try {
+		return safe_cast<bool>(values->Lookup(key));
+	} catch (Platform::Exception^) {
+		return fallback;
+	}
 }
 
 int ReadInt(String^ key, int fallback)
 {
 	auto values = SettingsValues();
-	return values->HasKey(key) ? safe_cast<int>(values->Lookup(key)) : fallback;
+	if (!values->HasKey(key)) return fallback;
+	try {
+		return safe_cast<int>(values->Lookup(key));
+	} catch (Platform::Exception^) {
+		return fallback;
+	}
 }
 
 double ReadDouble(String^ key, double fallback)
 {
 	auto values = SettingsValues();
-	return values->HasKey(key) ? safe_cast<double>(values->Lookup(key)) : fallback;
+	if (!values->HasKey(key)) return fallback;
+	try {
+		return safe_cast<double>(values->Lookup(key));
+	} catch (Platform::Exception^) {
+		return fallback;
+	}
 }
 
 String^ ReadString(String^ key, String^ fallback)
 {
 	auto values = SettingsValues();
-	return values->HasKey(key) ? safe_cast<String^>(values->Lookup(key)) : fallback;
+	if (!values->HasKey(key)) return fallback;
+	try {
+		return safe_cast<String^>(values->Lookup(key));
+	} catch (Platform::Exception^) {
+		return fallback;
+	}
+}
+
+int ClampIndex(int value, int count, int fallback)
+{
+	return value >= 0 && value < count ? value : fallback;
+}
+
+double ClampValue(double value, double minimum, double maximum, double fallback)
+{
+	return std::isfinite(value) && value >= minimum && value <= maximum ?
+		value : fallback;
 }
 
 std::string Utf8(String^ value)
@@ -97,7 +129,8 @@ DirectXPage::DirectXPage():
 	m_hddReady(false),
 	m_dvdReady(false),
 	m_savedSystemPointerCursor(nullptr),
-	m_systemPointerHidden(false)
+	m_systemPointerHidden(false),
+	m_logRefreshFrames(0)
 {
 	InitializeComponent();
 
@@ -118,6 +151,7 @@ DirectXPage::DirectXPage():
 
 	m_xemu = std::unique_ptr<XemuHost>(new XemuHost());
 	LoadSettings();
+	WireAutomaticSettings();
 	RestorePersistedFiles();
 	swapChainPanel->Loaded += ref new RoutedEventHandler(
 		this, &DirectXPage::OnRenderPanelLoaded);
@@ -147,6 +181,10 @@ DirectXPage::~DirectXPage()
 
 void DirectXPage::OnRendering(Object^, Object^)
 {
+	if (toolTabs->SelectedIndex == 5 && ++m_logRefreshFrames >= 60) {
+		m_logRefreshFrames = 0;
+		RefreshLogView();
+	}
 	if (m_windowVisible && m_xemu) {
 		if (m_xemu->IsRunning()) {
 			HideSystemPointer();
@@ -235,6 +273,71 @@ void DirectXPage::AppBarButton_Click(Object^ sender, RoutedEventArgs^ e)
 void DirectXPage::NavigationButton_Click(Object^ sender, RoutedEventArgs^)
 {
 	toolTabs->SelectedIndex = _wtoi(safe_cast<Button^>(sender)->Tag->ToString()->Data());
+	if (toolTabs->SelectedIndex == 5) {
+		m_logRefreshFrames = 0;
+		RefreshLogView();
+	}
+}
+
+void DirectXPage::RefreshLogView()
+{
+	auto path = ApplicationData::Current->LocalFolder->Path + "\\xemu.log";
+	CREATEFILE2_EXTENDED_PARAMETERS parameters = {};
+	parameters.dwSize = sizeof(parameters);
+	HANDLE file = CreateFile2(path->Data(), GENERIC_READ,
+	                          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+	                          OPEN_EXISTING, &parameters);
+	if (file == INVALID_HANDLE_VALUE) {
+		logText->Text = "xemu.log has not been created yet.";
+		return;
+	}
+
+	LARGE_INTEGER fileSize = {};
+	if (!GetFileSizeEx(file, &fileSize)) {
+		CloseHandle(file);
+		logText->Text = "Unable to read xemu.log.";
+		return;
+	}
+
+	constexpr DWORD maxLogBytes = 256 * 1024;
+	DWORD bytesToRead = fileSize.QuadPart < maxLogBytes ?
+		static_cast<DWORD>(fileSize.QuadPart) : maxLogBytes;
+	if (fileSize.QuadPart > bytesToRead) {
+		LARGE_INTEGER offset = {};
+		offset.QuadPart = fileSize.QuadPart - bytesToRead;
+		SetFilePointerEx(file, offset, nullptr, FILE_BEGIN);
+	}
+
+	std::string content(bytesToRead, '\0');
+	DWORD bytesRead = 0;
+	bool read = bytesToRead == 0 ||
+		ReadFile(file, &content[0], bytesToRead, &bytesRead, nullptr);
+	CloseHandle(file);
+	if (!read) {
+		logText->Text = "Unable to read xemu.log.";
+		return;
+	}
+	content.resize(bytesRead);
+	if (fileSize.QuadPart > bytesToRead) {
+		auto firstLine = content.find('\n');
+		if (firstLine != std::string::npos) content.erase(0, firstLine + 1);
+	}
+	if (content.empty()) {
+		logText->Text = "xemu.log is empty.";
+		return;
+	}
+
+	int length = MultiByteToWideChar(CP_UTF8, 0, content.data(),
+	                                 static_cast<int>(content.size()),
+	                                 nullptr, 0);
+	if (length <= 0) {
+		logText->Text = "Unable to decode xemu.log.";
+		return;
+	}
+	std::wstring text(length, L'\0');
+	MultiByteToWideChar(CP_UTF8, 0, content.data(),
+	                    static_cast<int>(content.size()), &text[0], length);
+	logText->Text = ref new String(text.c_str(), static_cast<unsigned int>(text.size()));
 }
 
 void DirectXPage::FocusEmulatorInput()
@@ -276,8 +379,8 @@ void DirectXPage::StartXemu_Click(Object^, RoutedEventArgs^)
 	if (!startButton->IsEnabled) {
 		return;
 	}
-	if (!SaveSettings()) {
-		toolTabs->SelectedIndex = 4;
+	if (!SaveSettings(false)) {
+		toolTabs->SelectedIndex = 5;
 		return;
 	}
 	if (m_xemu->Start()) { hostStatus->Text = "RUNNING"; FocusEmulatorInput(); launcherPanel->Visibility = Windows::UI::Xaml::Visibility::Collapsed; HideSystemPointer(); }
@@ -302,23 +405,23 @@ void DirectXPage::LoadSettings()
 	invertLeftY->IsChecked = ReadBool("input.uwp_gamepad.invert_axis_left_y", false);
 	invertRightX->IsChecked = ReadBool("input.uwp_gamepad.invert_axis_right_x", false);
 	invertRightY->IsChecked = ReadBool("input.uwp_gamepad.invert_axis_right_y", false);
-	port1Driver->SelectedIndex = ReadInt("input.port1.driver", 0);
-	port2Driver->SelectedIndex = ReadInt("input.port2.driver", 0);
-	port3Driver->SelectedIndex = ReadInt("input.port3.driver", 0);
-	port4Driver->SelectedIndex = ReadInt("input.port4.driver", 0);
-	port1SlotA->SelectedIndex = ReadInt("input.port1.slot_a", 0);
-	port1SlotB->SelectedIndex = ReadInt("input.port1.slot_b", 0);
-	port2SlotA->SelectedIndex = ReadInt("input.port2.slot_a", 0);
-	port2SlotB->SelectedIndex = ReadInt("input.port2.slot_b", 0);
-	port3SlotA->SelectedIndex = ReadInt("input.port3.slot_a", 0);
-	port3SlotB->SelectedIndex = ReadInt("input.port3.slot_b", 0);
-	port4SlotA->SelectedIndex = ReadInt("input.port4.slot_a", 0);
-	port4SlotB->SelectedIndex = ReadInt("input.port4.slot_b", 0);
-	surfaceScale->SelectedIndex = ReadInt("display.quality.surface_scale", 1) - 1;
-	filtering->SelectedIndex = ReadInt("display.filtering", 0);
-	displayFit->SelectedIndex = ReadInt("display.ui.fit", 1);
-	aspectRatio->SelectedIndex = ReadInt("display.ui.aspect_ratio", 1);
-	startupSize->SelectedIndex = ReadInt("display.window.startup_size", 5);
+	port1Driver->SelectedIndex = ClampIndex(ReadInt("input.port1.driver", 0), 2, 0);
+	port2Driver->SelectedIndex = ClampIndex(ReadInt("input.port2.driver", 0), 2, 0);
+	port3Driver->SelectedIndex = ClampIndex(ReadInt("input.port3.driver", 0), 2, 0);
+	port4Driver->SelectedIndex = ClampIndex(ReadInt("input.port4.driver", 0), 2, 0);
+	port1SlotA->SelectedIndex = ClampIndex(ReadInt("input.port1.slot_a", 0), 2, 0);
+	port1SlotB->SelectedIndex = ClampIndex(ReadInt("input.port1.slot_b", 0), 2, 0);
+	port2SlotA->SelectedIndex = ClampIndex(ReadInt("input.port2.slot_a", 0), 2, 0);
+	port2SlotB->SelectedIndex = ClampIndex(ReadInt("input.port2.slot_b", 0), 2, 0);
+	port3SlotA->SelectedIndex = ClampIndex(ReadInt("input.port3.slot_a", 0), 2, 0);
+	port3SlotB->SelectedIndex = ClampIndex(ReadInt("input.port3.slot_b", 0), 2, 0);
+	port4SlotA->SelectedIndex = ClampIndex(ReadInt("input.port4.slot_a", 0), 2, 0);
+	port4SlotB->SelectedIndex = ClampIndex(ReadInt("input.port4.slot_b", 0), 2, 0);
+	surfaceScale->SelectedIndex = ClampIndex(ReadInt("display.quality.surface_scale", 1) - 1, 6, 0);
+	filtering->SelectedIndex = ClampIndex(ReadInt("display.filtering", 0), 2, 0);
+	displayFit->SelectedIndex = ClampIndex(ReadInt("display.ui.fit", 1), 3, 1);
+	aspectRatio->SelectedIndex = ClampIndex(ReadInt("display.ui.aspect_ratio", 1), 4, 1);
+	startupSize->SelectedIndex = ClampIndex(ReadInt("display.window.startup_size", 5), 11, 5);
 	fullscreenStartup->IsChecked = ReadBool("display.window.fullscreen_on_startup", false);
 	fullscreenExclusive->IsChecked = ReadBool("display.window.fullscreen_exclusive", false);
 	vsync->IsChecked = ReadBool("display.window.vsync", true);
@@ -327,31 +430,114 @@ void DirectXPage::LoadSettings()
 	hideCursor->IsChecked = ReadBool("display.ui.hide_cursor", true);
 	useAnimations->IsChecked = ReadBool("display.ui.use_animations", true);
 	autoUiScale->IsChecked = ReadBool("display.ui.auto_scale", true);
-	uiScale->Value = ReadDouble("display.ui.scale", 1.0);
+	uiScale->Value = ClampValue(ReadDouble("display.ui.scale", 1.0), 1.0, 3.0, 1.0);
 	useDsp->IsChecked = ReadBool("audio.use_dsp", false);
 	useDspJit->IsChecked = ReadBool("audio.use_dsp_jit", false);
 	useHrtf->IsChecked = ReadBool("audio.hrtf", true);
-	volumeLimit->Value = ReadDouble("audio.volume_limit", 1.0);
-	voiceWorkers->Value = ReadInt("audio.vp.num_workers", 0);
+	volumeLimit->Value = ClampValue(ReadDouble("audio.volume_limit", 1.0), 0.0, 1.0, 1.0);
+	voiceWorkers->Value = ClampIndex(ReadInt("audio.vp.num_workers", 0), 17, 0);
 	networkEnabled->IsChecked = ReadBool("net.enable", true);
-	networkBackend->SelectedIndex = ReadInt("net.backend", 0);
+	networkBackend->SelectedIndex = ClampIndex(ReadInt("net.backend", 0), 2, 0);
 	udpBindAddress->Text = ReadString("net.udp.bind_addr", "0.0.0.0:9368");
 	udpRemoteAddress->Text = ReadString("net.udp.remote_addr", "1.2.3.4:9368");
 	natForwardPorts->Text = ReadString("net.nat.forward_ports", "");
-	memoryLimit->SelectedIndex = ReadInt("sys.mem_limit", 0);
-	avPack->SelectedIndex = ReadInt("sys.avpack", 1);
+	memoryLimit->SelectedIndex = ClampIndex(ReadInt("sys.mem_limit", 0), 2, 0);
+	avPack->SelectedIndex = ClampIndex(ReadInt("sys.avpack", 1), 7, 1);
 }
 
 void DirectXPage::SaveSettings_Click(Object^, RoutedEventArgs^)
 {
-	if (SaveSettings()) {
-		hostStatus->Text = "SETTINGS SAVED";
+	if (SaveSettings(true)) {
+		hostStatus->Text = "NETWORK SETTINGS SAVED";
 	}
 }
 
-bool DirectXPage::SaveSettings()
+void DirectXPage::AutoSaveSettings_Click(Object^, RoutedEventArgs^)
+{
+	SaveSettings(false);
+}
+
+void DirectXPage::AutoSaveSettings_SelectionChanged(
+	Object^, SelectionChangedEventArgs^)
+{
+	SaveSettings(false);
+}
+
+void DirectXPage::AutoSaveSettings_ValueChanged(
+	Object^, RangeBaseValueChangedEventArgs^)
+{
+	SaveSettings(false);
+}
+
+void DirectXPage::WireAutomaticSettings()
+{
+	auto click = ref new RoutedEventHandler(
+		this, &DirectXPage::AutoSaveSettings_Click);
+	checkUpdates->Click += click;
+	skipBootAnimation->Click += click;
+	hardFpu->Click += click;
+	cacheShaders->Click += click;
+	filterSnapshots->Click += click;
+	autoBind->Click += click;
+	backgroundInput->Click += click;
+	invertLeftX->Click += click;
+	invertLeftY->Click += click;
+	invertRightX->Click += click;
+	invertRightY->Click += click;
+	fullscreenStartup->Click += click;
+	fullscreenExclusive->Click += click;
+	vsync->Click += click;
+	showMenubar->Click += click;
+	showNotifications->Click += click;
+	hideCursor->Click += click;
+	useAnimations->Click += click;
+	autoUiScale->Click += click;
+	useDsp->Click += click;
+	useDspJit->Click += click;
+	useHrtf->Click += click;
+
+	auto selectionChanged = ref new SelectionChangedEventHandler(
+		this, &DirectXPage::AutoSaveSettings_SelectionChanged);
+	port1Driver->SelectionChanged += selectionChanged;
+	port2Driver->SelectionChanged += selectionChanged;
+	port3Driver->SelectionChanged += selectionChanged;
+	port4Driver->SelectionChanged += selectionChanged;
+	port1SlotA->SelectionChanged += selectionChanged;
+	port1SlotB->SelectionChanged += selectionChanged;
+	port2SlotA->SelectionChanged += selectionChanged;
+	port2SlotB->SelectionChanged += selectionChanged;
+	port3SlotA->SelectionChanged += selectionChanged;
+	port3SlotB->SelectionChanged += selectionChanged;
+	port4SlotA->SelectionChanged += selectionChanged;
+	port4SlotB->SelectionChanged += selectionChanged;
+	surfaceScale->SelectionChanged += selectionChanged;
+	filtering->SelectionChanged += selectionChanged;
+	displayFit->SelectionChanged += selectionChanged;
+	aspectRatio->SelectionChanged += selectionChanged;
+	startupSize->SelectionChanged += selectionChanged;
+	memoryLimit->SelectionChanged += selectionChanged;
+	avPack->SelectionChanged += selectionChanged;
+
+	auto valueChanged = ref new RangeBaseValueChangedEventHandler(
+		this, &DirectXPage::AutoSaveSettings_ValueChanged);
+	uiScale->ValueChanged += valueChanged;
+	volumeLimit->ValueChanged += valueChanged;
+	voiceWorkers->ValueChanged += valueChanged;
+}
+
+bool DirectXPage::SaveSettings(bool saveNetwork)
 {
 	auto values = SettingsValues();
+	bool networkEnabledValue = saveNetwork ? networkEnabled->IsChecked->Value :
+		ReadBool("net.enable", true);
+	int networkBackendValue = saveNetwork ? networkBackend->SelectedIndex :
+		ReadInt("net.backend", 0);
+	String^ udpBindAddressValue = saveNetwork ? udpBindAddress->Text :
+		ReadString("net.udp.bind_addr", "0.0.0.0:9368");
+	String^ udpRemoteAddressValue = saveNetwork ? udpRemoteAddress->Text :
+		ReadString("net.udp.remote_addr", "1.2.3.4:9368");
+	String^ natForwardPortsValue = saveNetwork ? natForwardPorts->Text :
+		ReadString("net.nat.forward_ports", "");
 #define SAVE_BOOL(key, control) values->Insert(key, control->IsChecked->Value)
 #define SAVE_INT(key, value) values->Insert(key, static_cast<int>(value))
 #define SAVE_DOUBLE(key, value) values->Insert(key, static_cast<double>(value))
@@ -397,11 +583,6 @@ bool DirectXPage::SaveSettings()
 	SAVE_BOOL("audio.hrtf", useHrtf);
 	SAVE_DOUBLE("audio.volume_limit", volumeLimit->Value);
 	SAVE_INT("audio.vp.num_workers", static_cast<int>(voiceWorkers->Value));
-	SAVE_BOOL("net.enable", networkEnabled);
-	SAVE_INT("net.backend", networkBackend->SelectedIndex);
-	values->Insert("net.udp.bind_addr", udpBindAddress->Text);
-	values->Insert("net.udp.remote_addr", udpRemoteAddress->Text);
-	values->Insert("net.nat.forward_ports", natForwardPorts->Text);
 	SAVE_INT("sys.mem_limit", memoryLimit->SelectedIndex);
 	SAVE_INT("sys.avpack", avPack->SelectedIndex);
 #undef SAVE_BOOL
@@ -418,8 +599,8 @@ bool DirectXPage::SaveSettings()
 	auto futureFiles = StorageApplicationPermissions::FutureAccessList;
 	auto validateXmu = [this, futureFiles](ComboBox^ slot, String^ tag) {
 		if (slot->SelectedIndex == 1 && !futureFiles->ContainsItem("xemu-" + tag)) {
-			errorText->Text = "Select the Memory Unit file " + tag +
-			                  " on the Folders and Memory Units page.";
+				errorText->Text = "Select the Memory Unit file " + tag +
+				                  " on the Storage page.";
 			return false;
 		}
 		return true;
@@ -436,7 +617,7 @@ bool DirectXPage::SaveSettings()
 	}
 
 	std::ostringstream natRules;
-	std::istringstream rules(Utf8(natForwardPorts->Text));
+	std::istringstream rules(Utf8(natForwardPortsValue));
 	std::string rule;
 	while (std::getline(rules, rule)) {
 		if (rule.empty()) continue;
@@ -459,6 +640,13 @@ bool DirectXPage::SaveSettings()
 		         << "\nguest = " << guestPort << "\nprotocol = \""
 		         << protocol << "\"\n";
 	}
+	if (saveNetwork) {
+		values->Insert("net.enable", networkEnabledValue);
+		values->Insert("net.backend", networkBackendValue);
+		values->Insert("net.udp.bind_addr", udpBindAddressValue);
+		values->Insert("net.udp.remote_addr", udpRemoteAddressValue);
+		values->Insert("net.nat.forward_ports", natForwardPortsValue);
+	}
 
 	std::ostringstream config;
 	config << "[general]\n"
@@ -473,7 +661,7 @@ bool DirectXPage::SaveSettings()
 	       << "\"\nport2_driver = \"" << controllerDrivers[port2Driver->SelectedIndex]
 	       << "\"\nport3_driver = \"" << controllerDrivers[port3Driver->SelectedIndex]
 	       << "\"\nport4_driver = \"" << controllerDrivers[port4Driver->SelectedIndex] << "\"\n"
-	       << "[input.uwp_gamepad]\ninvert_axis_left_x = " << BoolText(invertLeftX->IsChecked->Value)
+	       << "[input.uwp_gamepad]\nenable_rumble = false\ninvert_axis_left_x = " << BoolText(invertLeftX->IsChecked->Value)
 	       << "\ninvert_axis_left_y = " << BoolText(invertLeftY->IsChecked->Value)
 	       << "\ninvert_axis_right_x = " << BoolText(invertRightX->IsChecked->Value)
 	       << "\ninvert_axis_right_y = " << BoolText(invertRightY->IsChecked->Value) << "\n"
@@ -496,8 +684,8 @@ bool DirectXPage::SaveSettings()
 	       << "\nuse_dsp_jit = " << BoolText(useDspJit->IsChecked->Value)
 	       << "\nhrtf = " << BoolText(useHrtf->IsChecked->Value) << "\nvolume_limit = " << volumeLimit->Value << "\n"
 	       << "[audio.vp]\nnum_workers = " << static_cast<int>(voiceWorkers->Value) << "\n"
-	       << "[net]\nenable = " << BoolText(networkEnabled->IsChecked->Value) << "\nbackend = \"" << backendValues[networkBackend->SelectedIndex] << "\"\n"
-	       << "[net.udp]\nbind_addr = " << TomlString(udpBindAddress->Text) << "\nremote_addr = " << TomlString(udpRemoteAddress->Text) << "\n"
+	       << "[net]\nenable = " << BoolText(networkEnabledValue) << "\nbackend = \"" << backendValues[networkBackendValue] << "\"\n"
+	       << "[net.udp]\nbind_addr = " << TomlString(udpBindAddressValue) << "\nremote_addr = " << TomlString(udpRemoteAddressValue) << "\n"
 	       << natRules.str()
 	       << "[sys]\nmem_limit = \"" << (memoryLimit->SelectedIndex == 0 ? "64" : "128")
 	       << "\"\navpack = \"" << avValues[avPack->SelectedIndex] << "\"\n";
@@ -559,7 +747,7 @@ void DirectXPage::MountXboxFolder(StorageFolder^ folder, String^ tagValue,
 	std::string tag = tagValue == "screenshots" ? "screenshots" : "games";
 	if (!m_xemu->MountFolder("/broker/" + tag, folder)) {
 		errorText->Text = "Failed to mount the selected folder.";
-		toolTabs->SelectedIndex = 4;
+		toolTabs->SelectedIndex = 5;
 	}
 }
 
@@ -580,6 +768,13 @@ void DirectXPage::MountXboxFile(StorageFile^ file, String^ tagValue,
 	              tagValue == "xmu-p4b" ? xmuP4BStatus : dvdFileStatus;
 	auto location = file->Path->IsEmpty() ? file->Name : file->Path;
 	status->Text = location + "  |  " + file->Name;
+	if (persist) {
+		StorageApplicationPermissions::FutureAccessList->AddOrReplace(
+			"xemu-" + tagValue, file);
+	}
+
+	bool isXmu = tagValue->Length() >= 4 &&
+	             wcsncmp(tagValue->Data(), L"xmu-", 4) == 0;
 	if (tagValue == "xmu-p1a") port1SlotA->SelectedIndex = 1;
 	else if (tagValue == "xmu-p1b") port1SlotB->SelectedIndex = 1;
 	else if (tagValue == "xmu-p2a") port2SlotA->SelectedIndex = 1;
@@ -589,12 +784,9 @@ void DirectXPage::MountXboxFile(StorageFile^ file, String^ tagValue,
 	else if (tagValue == "xmu-p4a") port4SlotA->SelectedIndex = 1;
 	else if (tagValue == "xmu-p4b") port4SlotB->SelectedIndex = 1;
 
-	if (persist) {
-		StorageApplicationPermissions::FutureAccessList->AddOrReplace(
-			"xemu-" + tagValue, file);
+	if (persist && isXmu) {
+		SaveSettings(false);
 	}
-	bool isXmu = tagValue->Length() >= 4 &&
-	             wcsncmp(tagValue->Data(), L"xmu-", 4) == 0;
 	auto access = (tagValue == "hdd" || tagValue == "eeprom" || isXmu) ? FileAccessMode::ReadWrite :
 	                                  FileAccessMode::Read;
 	create_task(file->OpenAsync(access)).then(
@@ -609,7 +801,7 @@ void DirectXPage::MountXboxFile(StorageFile^ file, String^ tagValue,
 				auto error = m_xemu->LastError();
 				errorText->Text = ref new String(
 					std::wstring(error.begin(), error.end()).c_str());
-				toolTabs->SelectedIndex = 4;
+				toolTabs->SelectedIndex = 5;
 				return;
 			}
 			if (tagValue == "flash") m_flashReady = true;
