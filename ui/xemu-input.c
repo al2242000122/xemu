@@ -27,6 +27,9 @@
 #include "qemu/option.h"
 #include "qemu/timer.h"
 #include "qemu/config-file.h"
+#define QEMU_HOST_BUILD
+#include "qemu/qemu-host.h"
+#undef QEMU_HOST_BUILD
 
 #include "xemu-input.h"
 #include "xemu-notifications.h"
@@ -48,6 +51,21 @@
 
 #define XEMU_INPUT_MIN_INPUT_UPDATE_INTERVAL_US  2500
 #define XEMU_INPUT_MIN_RUMBLE_UPDATE_INTERVAL_US 2500
+
+#ifdef CONFIG_UWP
+static void uwp_input_log(const char *format, ...) G_GNUC_PRINTF(1, 2);
+
+static void uwp_input_log(const char *format, ...)
+{
+    char message[512];
+    va_list args;
+
+    va_start(args, format);
+    vsnprintf(message, sizeof(message), format, args);
+    va_end(args);
+    qemu_host_emit_log(QEMU_HOST_LOG_INFO, message);
+}
+#endif
 
 #if 0
 static void xemu_input_print_controller_state(ControllerState *state)
@@ -91,6 +109,90 @@ ControllerState *bound_controllers[4] = { NULL, NULL, NULL, NULL };
 const char *bound_drivers[4] = { DRIVER_DUKE, DRIVER_DUKE, DRIVER_DUKE,
                                  DRIVER_DUKE };
 int test_mode;
+
+#ifdef CONFIG_UWP
+static GMutex host_gamepad_lock;
+static QemuHostGamepadState host_gamepad_states[4];
+
+int qemu_host_set_gamepad_state(unsigned int port,
+                                const QemuHostGamepadState *state)
+{
+    if (port >= ARRAY_SIZE(host_gamepad_states) || !state ||
+        state->size < sizeof(*state)) {
+        return -EINVAL;
+    }
+
+    g_mutex_lock(&host_gamepad_lock);
+    host_gamepad_states[port] = *state;
+    g_mutex_unlock(&host_gamepad_lock);
+    return 0;
+}
+
+static bool xemu_input_update_host_gamepad_state(ControllerState *state)
+{
+    QemuHostGamepadState snapshot;
+
+    if (state->bound < 0 || state->bound >= ARRAY_SIZE(host_gamepad_states)) {
+        return false;
+    }
+    g_mutex_lock(&host_gamepad_lock);
+    snapshot = host_gamepad_states[state->bound];
+    g_mutex_unlock(&host_gamepad_lock);
+    if (!snapshot.connected) {
+        return false;
+    }
+
+    state->buttons = snapshot.buttons;
+    state->axis[CONTROLLER_AXIS_LTRIG] = snapshot.left_trigger;
+    state->axis[CONTROLLER_AXIS_RTRIG] = snapshot.right_trigger;
+    state->axis[CONTROLLER_AXIS_LSTICK_X] = snapshot.left_x;
+    state->axis[CONTROLLER_AXIS_LSTICK_Y] = snapshot.left_y;
+    state->axis[CONTROLLER_AXIS_RSTICK_X] = snapshot.right_x;
+    state->axis[CONTROLLER_AXIS_RSTICK_Y] = snapshot.right_y;
+    return true;
+}
+
+bool xemu_input_get_host_navigation_state(
+    uint32_t *buttons, int16_t axis[CONTROLLER_AXIS__COUNT])
+{
+    bool connected = false;
+
+    if (!buttons || !axis) {
+        return false;
+    }
+    *buttons = 0;
+    memset(axis, 0, sizeof(int16_t) * CONTROLLER_AXIS__COUNT);
+
+    g_mutex_lock(&host_gamepad_lock);
+    for (unsigned int port = 0; port < ARRAY_SIZE(host_gamepad_states);
+         port++) {
+        const QemuHostGamepadState *state = &host_gamepad_states[port];
+
+        if (!state->connected) {
+            continue;
+        }
+        connected = true;
+        *buttons |= state->buttons;
+        axis[CONTROLLER_AXIS_LTRIG] =
+            MAX(axis[CONTROLLER_AXIS_LTRIG], state->left_trigger);
+        axis[CONTROLLER_AXIS_RTRIG] =
+            MAX(axis[CONTROLLER_AXIS_RTRIG], state->right_trigger);
+#define HOST_STRONGEST_AXIS(target, source)                         \
+        do {                                                        \
+            if (ABS(source) > ABS(axis[target])) {                  \
+                axis[target] = source;                              \
+            }                                                       \
+        } while (0)
+        HOST_STRONGEST_AXIS(CONTROLLER_AXIS_LSTICK_X, state->left_x);
+        HOST_STRONGEST_AXIS(CONTROLLER_AXIS_LSTICK_Y, state->left_y);
+        HOST_STRONGEST_AXIS(CONTROLLER_AXIS_RSTICK_X, state->right_x);
+        HOST_STRONGEST_AXIS(CONTROLLER_AXIS_RSTICK_Y, state->right_y);
+#undef HOST_STRONGEST_AXIS
+    }
+    g_mutex_unlock(&host_gamepad_lock);
+    return connected;
+}
+#endif
 
 static const char **port_index_to_settings_key_map[] = {
     &g_config.input.bindings.port1,
@@ -213,7 +315,23 @@ static void xemu_input_bindings_reload_map(ControllerState *con)
 
     char guid[35] = { 0 };
     SDL_GUIDToString(con->sdl_joystick_guid, guid, sizeof(guid));
-    if (!xemu_settings_load_gamepad_mapping(guid, &con->controller_map)) {
+    bool new_mapping = xemu_settings_load_gamepad_mapping(
+        guid, &con->controller_map);
+
+#ifdef CONFIG_UWP
+    con->controller_map->enable_rumble =
+        g_config.input.uwp_gamepad.enable_rumble;
+    con->controller_map->controller_mapping.invert_axis_left_x =
+        g_config.input.uwp_gamepad.invert_axis_left_x;
+    con->controller_map->controller_mapping.invert_axis_left_y =
+        g_config.input.uwp_gamepad.invert_axis_left_y;
+    con->controller_map->controller_mapping.invert_axis_right_x =
+        g_config.input.uwp_gamepad.invert_axis_right_x;
+    con->controller_map->controller_mapping.invert_axis_right_y =
+        g_config.input.uwp_gamepad.invert_axis_right_y;
+#endif
+
+    if (!new_mapping) {
         return;
     }
 
@@ -262,6 +380,17 @@ static const int port_map[4] = { 3, 4, 1, 2 };
 
 void xemu_input_init(void)
 {
+#ifdef CONFIG_UWP
+    /* The host reads Windows.Gaming.Input on the XAML thread and forwards it
+     * through SDL's virtual joystick driver. Avoid the raw WGI device, whose
+     * apartment and localized device name are unreliable on retail Xbox. */
+    if (!SDL_SetHint(SDL_HINT_JOYSTICK_WGI, "0")) {
+        uwp_input_log("input: failed to disable raw SDL WGI backend");
+    } else {
+        uwp_input_log("input: using UWP host gamepad bridge");
+    }
+#endif
+
     if (g_config.input.background_input_capture) {
         SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     }
@@ -270,6 +399,19 @@ void xemu_input_init(void)
         fprintf(stderr, "Failed to initialize SDL gamepad subsystem: %s\n", SDL_GetError());
         exit(1);
     }
+
+#ifdef CONFIG_UWP
+    int gamepad_count = 0;
+    SDL_JoystickID *gamepads = SDL_GetGamepads(&gamepad_count);
+    uwp_input_log("input: SDL gamepad subsystem initialized; %d controller(s) detected",
+                  gamepad_count);
+    for (int i = 0; gamepads && i < gamepad_count; i++) {
+        const char *name = SDL_GetGamepadNameForID(gamepads[i]);
+        uwp_input_log("input: controller id=%u name=%s",
+                      (unsigned int)gamepads[i], name ? name : "(unknown)");
+    }
+    SDL_free(gamepads);
+#endif
 
     if (g_config.input.gamecontrollerdb_path && strlen(g_config.input.gamecontrollerdb_path) > 0) {
         int count = SDL_AddGamepadMappingsFromFile(g_config.input.gamecontrollerdb_path);
@@ -361,6 +503,10 @@ void xemu_input_process_sdl_events(const SDL_Event *event)
 {
     if (event->type == SDL_EVENT_GAMEPAD_ADDED) {
         DPRINTF("Controller Added: %d\n", event->gdevice.which);
+#ifdef CONFIG_UWP
+        uwp_input_log("input: SDL_EVENT_GAMEPAD_ADDED id=%u",
+                      (unsigned int)event->gdevice.which);
+#endif
 
         // Attempt to open the added controller
         SDL_Gamepad *sdl_con;
@@ -439,6 +585,11 @@ void xemu_input_process_sdl_events(const SDL_Event *event)
             snprintf(buf, sizeof(buf), "Connected '%s' to port %d", new_con->name, port+1);
             xemu_queue_notification(buf);
             xemu_input_rebind_xmu(port);
+#ifdef CONFIG_UWP
+            uwp_input_log("input: controller %s bound to Xbox port %d",
+                          new_con->name ? new_con->name : "(unknown)",
+                          port + 1);
+#endif
         }
     } else if (event->type == SDL_EVENT_GAMEPAD_REMOVED) {
         DPRINTF("Controller Removed: %d\n", event->gdevice.which);
@@ -585,6 +736,11 @@ void xemu_input_update_sdl_kbd_controller_state(ControllerState *state)
 
 void xemu_input_update_sdl_controller_state(ControllerState *state)
 {
+#ifdef CONFIG_UWP
+    if (xemu_input_update_host_gamepad_state(state)) {
+        return;
+    }
+#endif
     state->buttons = 0;
     memset(state->axis, 0, sizeof(state->axis));
 
@@ -647,6 +803,27 @@ void xemu_input_update_sdl_controller_state(ControllerState *state)
     }
 
 #undef INVERT_AXIS
+
+#ifdef CONFIG_UWP
+    static bool first_input_logged;
+    if (!first_input_logged &&
+        (state->buttons || state->axis[CONTROLLER_AXIS_LTRIG] ||
+         state->axis[CONTROLLER_AXIS_RTRIG] ||
+         state->axis[CONTROLLER_AXIS_LSTICK_X] ||
+         state->axis[CONTROLLER_AXIS_LSTICK_Y] ||
+         state->axis[CONTROLLER_AXIS_RSTICK_X] ||
+         state->axis[CONTROLLER_AXIS_RSTICK_Y])) {
+        uwp_input_log("input: first guest controller state port=%d buttons=0x%04x axes=%d,%d,%d,%d,%d,%d",
+                      state->bound + 1, state->buttons,
+                      state->axis[CONTROLLER_AXIS_LTRIG],
+                      state->axis[CONTROLLER_AXIS_RTRIG],
+                      state->axis[CONTROLLER_AXIS_LSTICK_X],
+                      state->axis[CONTROLLER_AXIS_LSTICK_Y],
+                      state->axis[CONTROLLER_AXIS_RSTICK_X],
+                      state->axis[CONTROLLER_AXIS_RSTICK_Y]);
+        first_input_logged = true;
+    }
+#endif
 
     // xemu_input_print_controller_state(state);
 }

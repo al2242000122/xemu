@@ -96,9 +96,21 @@ static void host_apply_brokered_machine_files(void)
         xemu_settings_set_string(&g_config.sys.files.hdd_path,
                                  "/broker/hdd");
     }
+    if (host_brokered_mount_exists("/broker/eeprom")) {
+        xemu_settings_set_string(&g_config.sys.files.eeprom_path,
+                                 "/broker/eeprom");
+    }
     if (host_brokered_mount_exists("/broker/dvd")) {
         xemu_settings_set_string(&g_config.sys.files.dvd_path,
                                  "/broker/dvd");
+    }
+    if (host_brokered_mount_exists("/broker/screenshots")) {
+        xemu_settings_set_string(&g_config.general.screenshot_dir,
+                                 "/broker/screenshots");
+    }
+    if (host_brokered_mount_exists("/broker/games")) {
+        xemu_settings_set_string(&g_config.general.games_dir,
+                                 "/broker/games");
     }
     if (has_flash) {
         qemu_host_emit_log(QEMU_HOST_LOG_DEBUG,

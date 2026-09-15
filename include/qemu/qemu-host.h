@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 #define QEMU_HOST_API_VERSION_MAJOR 1U
-#define QEMU_HOST_API_VERSION_MINOR 2U
+#define QEMU_HOST_API_VERSION_MINOR 3U
 #define QEMU_HOST_API_VERSION \
     ((QEMU_HOST_API_VERSION_MAJOR << 16) | QEMU_HOST_API_VERSION_MINOR)
 
@@ -48,6 +48,36 @@ typedef enum QemuHostPointerButton {
     QEMU_HOST_POINTER_BUTTON_SIDE = 5,
     QEMU_HOST_POINTER_BUTTON_EXTRA = 6,
 } QemuHostPointerButton;
+
+typedef enum QemuHostGamepadButton {
+    QEMU_HOST_GAMEPAD_A = 1U << 0,
+    QEMU_HOST_GAMEPAD_B = 1U << 1,
+    QEMU_HOST_GAMEPAD_X = 1U << 2,
+    QEMU_HOST_GAMEPAD_Y = 1U << 3,
+    QEMU_HOST_GAMEPAD_DPAD_LEFT = 1U << 4,
+    QEMU_HOST_GAMEPAD_DPAD_UP = 1U << 5,
+    QEMU_HOST_GAMEPAD_DPAD_RIGHT = 1U << 6,
+    QEMU_HOST_GAMEPAD_DPAD_DOWN = 1U << 7,
+    QEMU_HOST_GAMEPAD_BACK = 1U << 8,
+    QEMU_HOST_GAMEPAD_START = 1U << 9,
+    QEMU_HOST_GAMEPAD_LEFT_SHOULDER = 1U << 10,
+    QEMU_HOST_GAMEPAD_RIGHT_SHOULDER = 1U << 11,
+    QEMU_HOST_GAMEPAD_LEFT_STICK = 1U << 12,
+    QEMU_HOST_GAMEPAD_RIGHT_STICK = 1U << 13,
+    QEMU_HOST_GAMEPAD_GUIDE = 1U << 14,
+} QemuHostGamepadButton;
+
+typedef struct QemuHostGamepadState {
+    uint32_t size;
+    uint32_t buttons;
+    int16_t left_trigger;
+    int16_t right_trigger;
+    int16_t left_x;
+    int16_t left_y;
+    int16_t right_x;
+    int16_t right_y;
+    bool connected;
+} QemuHostGamepadState;
 
 typedef void (*QemuHostLogCallback)(void *opaque, QemuHostLogLevel level,
                                     const char *message);
@@ -222,6 +252,8 @@ QEMU_HOST_EXPORT int qemu_host_send_pointer_abs(int x, int y,
 QEMU_HOST_EXPORT int qemu_host_send_pointer_button(
     QemuHostPointerButton button, bool down);
 QEMU_HOST_EXPORT bool qemu_host_pointer_is_absolute(void);
+QEMU_HOST_EXPORT int qemu_host_set_gamepad_state(
+    unsigned int port, const QemuHostGamepadState *state);
 
 #ifdef __cplusplus
 }

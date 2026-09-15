@@ -21,6 +21,12 @@ void InputManager::Update()
 
     // If we are rebinding a controller, prevent navigation
     if (!g_main_menu.IsInputRebinding()) {
+#ifdef CONFIG_UWP
+        /* The XAML render thread must not traverse available_controllers while
+         * the QEMU thread handles SDL hotplug events. Read the host bridge's
+         * mutex-protected snapshot instead. */
+        xemu_input_get_host_navigation_state(&m_buttons, axis);
+#else
         ControllerState *iter;
         QTAILQ_FOREACH (iter, &available_controllers, entry) {
             if (iter->type != INPUT_DEVICE_SDL_GAMEPAD)
@@ -33,6 +39,7 @@ void InputManager::Update()
                 }
             }
         }
+#endif
     }
 
     // If the mouse is moved, wake the ui
@@ -52,7 +59,6 @@ void InputManager::Update()
         controller_focus_capture = true;
         m_navigating_with_controller |= !!m_buttons;
     }
-
 
     // Prevent controller events from going to the guest if they are being used
     // to navigate the HUD

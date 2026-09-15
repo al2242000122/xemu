@@ -226,7 +226,11 @@ void xemu_hud_update(void)
     }
 #endif
 
-    if (g_config.display.ui.show_menubar && !first_boot_window.is_open) {
+    if (
+#ifdef CONFIG_UWP
+        false &&
+#endif
+        g_config.display.ui.show_menubar && !first_boot_window.is_open) {
         // Auto-hide main menu after 5s of inactivity
         static uint32_t last_check = 0;
         float alpha = 1.0;

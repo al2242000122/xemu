@@ -131,6 +131,10 @@ void xemu_input_update_controller(ControllerState *state);
 void xemu_input_update_sdl_kbd_controller_state(ControllerState *state);
 void xemu_input_update_sdl_controller_state(ControllerState *state);
 void xemu_input_update_rumble(ControllerState *state);
+#ifdef CONFIG_UWP
+bool xemu_input_get_host_navigation_state(
+    uint32_t *buttons, int16_t axis[CONTROLLER_AXIS__COUNT]);
+#endif
 ControllerState *xemu_input_get_bound(int index);
 void xemu_input_bind(int index, ControllerState *state, int save);
 bool xemu_input_bind_xmu(int player_index, int peripheral_port_index,

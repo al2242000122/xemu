@@ -521,6 +521,9 @@ void PopupMenuScene::PushFocus()
 
 void PopupMenuScene::PopFocus()
 {
+    if (m_focus_stack.empty()) {
+        return;
+    }
     auto next_focus = m_focus_stack.back();
     m_focus_stack.pop_back();
     ImGuiContext *g = ImGui::GetCurrentContext();

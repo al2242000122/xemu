@@ -60,6 +60,16 @@ input:
     type: bool
     default: true
   background_input_capture: bool
+  # Defaults applied to every SDL gamepad by the embedded UWP host. Desktop
+  # builds continue to use the per-GUID gamepad_mappings entries below.
+  uwp_gamepad:
+    enable_rumble:
+      type: bool
+      default: true
+    invert_axis_left_x: bool
+    invert_axis_left_y: bool
+    invert_axis_right_x: bool
+    invert_axis_right_y: bool
   keyboard_controller_scancode_map:
     # Scancode reference : https://github.com/libsdl-org/SDL/blob/main/include/SDL_scancode.h
     a:
