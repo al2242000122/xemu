@@ -29,9 +29,18 @@ namespace UWP_Port
 
 		// Manipuladores de eventos da janela.
 		void OnVisibilityChanged(Windows::UI::Core::CoreWindow^ sender, Windows::UI::Core::VisibilityChangedEventArgs^ args);
+		void OnBackRequested(Platform::Object^ sender,
+		                     Windows::UI::Core::BackRequestedEventArgs^ args);
+		void OnCoreKeyDown(Windows::UI::Core::CoreWindow^ sender,
+		                   Windows::UI::Core::KeyEventArgs^ args);
+		void OnCoreKeyUp(Windows::UI::Core::CoreWindow^ sender,
+		                 Windows::UI::Core::KeyEventArgs^ args);
 		void OnRenderPanelLoaded(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ args);
 		void OnRenderPanelSizeChanged(Platform::Object^ sender, Windows::UI::Xaml::SizeChangedEventArgs^ args);
 		void OnRenderPanelScaleChanged(Windows::UI::Xaml::Controls::SwapChainPanel^ sender, Platform::Object^ args);
+		void FocusEmulatorInput();
+		void HideSystemPointer();
+		void UpdateStartButtonState();
 
 		// Outros manipuladores de eventos.
 		void AppBarButton_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
@@ -41,24 +50,31 @@ namespace UWP_Port
 		void ResumeXemu_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void ResetXemu_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void StopXemu_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void SaveSettings_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void LoadSettings();
+		bool SaveSettings();
 		void SelectFile_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void SelectFolder_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void MountXboxFile(Windows::Storage::StorageFile^ file,
 		                   Platform::String^ tagValue, bool persist);
 		void RestorePersistedFiles();
 		void RestorePersistedFile(Platform::String^ tagValue);
-		// Rastreie nossa entrada independente em um thread de trabalho de segundo plano.
-		Windows::Foundation::IAsyncAction^ m_inputLoopWorker;
-		Windows::UI::Core::CoreIndependentInputSource^ m_coreInput;
-
-		// Funções de manipulação de entrada independente.
-		void OnPointerPressed(Platform::Object^ sender, Windows::UI::Core::PointerEventArgs^ e);
-		void OnPointerMoved(Platform::Object^ sender, Windows::UI::Core::PointerEventArgs^ e);
-		void OnPointerReleased(Platform::Object^ sender, Windows::UI::Core::PointerEventArgs^ e);
-
+		void MountXboxFolder(Windows::Storage::StorageFolder^ folder,
+		                     Platform::String^ tagValue, bool persist);
+		void RestorePersistedFolder(Platform::String^ tagValue);
 		std::unique_ptr<XemuHost> m_xemu;
 		Windows::Foundation::EventRegistrationToken m_renderingToken;
+		Windows::Foundation::EventRegistrationToken m_backRequestedToken;
+		Windows::Foundation::EventRegistrationToken m_keyDownToken;
+		Windows::Foundation::EventRegistrationToken m_keyUpToken;
 		bool m_windowVisible;
 		bool m_renderAttached;
+		bool m_flashReady;
+		bool m_bootromReady;
+		bool m_hddReady;
+		bool m_dvdReady;
+		Windows::UI::Core::CoreCursor^ m_savedSystemPointerCursor;
+		bool m_systemPointerHidden;
 	};
 }
 

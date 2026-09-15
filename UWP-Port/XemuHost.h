@@ -5,6 +5,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <SDL3/SDL_gamepad.h>
+#include <SDL3/SDL_joystick.h>
 #include "../include/qemu/qemu-host.h"
 
 namespace UWP_Port
@@ -39,6 +41,9 @@ namespace UWP_Port
         void Run(std::vector<std::string> arguments);
         void WriteDiagnostic(const std::string& message);
         void SetError(const std::string& error);
+        bool ResolveSDLInput();
+        void UpdateUWPGamepad();
+        void DetachUWPGamepad();
         static void __cdecl Log(void* opaque, QemuHostLogLevel level,
                                 const char* message);
         static void __cdecl SDLLog(void* opaque, int category, int priority,
@@ -90,6 +95,28 @@ namespace UWP_Port
         AttachMesa m_attachMesa;
         SetMesaSwapChainAttach m_setMesaSwapChainAttach;
         UpdateSDLPanelSize m_updateSDLPanelSize;
+        using AttachVirtualJoystick = SDL_JoystickID (__cdecl *)(
+            const SDL_VirtualJoystickDesc*);
+        using DetachVirtualJoystick = bool (__cdecl *)(SDL_JoystickID);
+        using OpenJoystick = SDL_Joystick* (__cdecl *)(SDL_JoystickID);
+        using CloseJoystick = void (__cdecl *)(SDL_Joystick*);
+        using SetVirtualAxis = bool (__cdecl *)(SDL_Joystick*, int, int16_t);
+        using SetVirtualButton = bool (__cdecl *)(SDL_Joystick*, int, bool);
+        using SetEmbeddedCursorHidden = void (__cdecl *)(bool);
+        AttachVirtualJoystick m_attachVirtualJoystick;
+        DetachVirtualJoystick m_detachVirtualJoystick;
+        OpenJoystick m_openJoystick;
+        CloseJoystick m_closeJoystick;
+        SetVirtualAxis m_setVirtualAxis;
+        SetVirtualButton m_setVirtualButton;
+        SetEmbeddedCursorHidden m_setEmbeddedCursorHidden;
+        decltype(&qemu_host_set_gamepad_state) m_setGamepadState;
+        SDL_JoystickID m_virtualJoystickId;
+        SDL_Joystick* m_virtualJoystick;
+        Windows::Gaming::Input::Gamepad^ m_uwpGamepad;
+        bool m_gamepadErrorLogged;
+        uint64_t m_lastGamepadTimestamp;
+        unsigned int m_gamepadChangeLogs;
         Windows::UI::Xaml::Controls::SwapChainPanel^ m_renderPanel;
         Microsoft::WRL::ComPtr<IDXGISwapChain2> m_swapChain;
 

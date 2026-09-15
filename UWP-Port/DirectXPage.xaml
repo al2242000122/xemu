@@ -10,23 +10,133 @@
       <Border Background="{StaticResource Panel}" BorderBrush="#FF334152" BorderThickness="0,0,1,0" Padding="22">
         <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <StackPanel><TextBlock Text="XEMU UWP" FontFamily="Consolas" FontSize="13" Foreground="{StaticResource Accent}"/><TextBlock Text="Original Xbox" FontSize="24" FontWeight="SemiBold" Foreground="White" Margin="0,6,0,30"/></StackPanel>
-          <StackPanel Grid.Row="1"><Button Content="Início" Tag="0" Click="NavigationButton_Click"/><Button Content="Arquivos" Tag="1" Click="NavigationButton_Click"/><Button Content="Configurações" Tag="2" Click="NavigationButton_Click"/><Button Content="Logs" Tag="3" Click="NavigationButton_Click"/></StackPanel>
-          <StackPanel Grid.Row="2"><TextBlock x:Name="hostStatus" Text="● PRONTO" Foreground="{StaticResource Accent}" FontFamily="Consolas"/><TextBlock Text="OpenGL · Mesa · D3D12" Foreground="#FFAAB8C5" FontSize="12"/></StackPanel>
+          <StackPanel Grid.Row="1"><Button Content="Home" Tag="0" Click="NavigationButton_Click"/><Button Content="Files" Tag="1" Click="NavigationButton_Click"/><Button Content="Folders and Memory Units" Tag="2" Click="NavigationButton_Click"/><Button Content="Settings" Tag="3" Click="NavigationButton_Click"/><Button Content="Logs" Tag="4" Click="NavigationButton_Click"/></StackPanel>
+          <StackPanel Grid.Row="2"><TextBlock x:Name="hostStatus" Text="● READY" Foreground="{StaticResource Accent}" FontFamily="Consolas"/><TextBlock Text="OpenGL · Mesa · D3D12" Foreground="#FFAAB8C5" FontSize="12"/></StackPanel>
         </Grid>
       </Border>
       <Pivot x:Name="toolTabs" Grid.Column="1">
-        <PivotItem><StackPanel Padding="38" Spacing="14" MaxWidth="760" HorizontalAlignment="Left"><TextBlock Text="xemu para Xbox/UWP" FontSize="38" FontWeight="SemiBold" Foreground="White"/><TextBlock Text="NV2A → OpenGL → Mesa Gallium D3D12" FontFamily="Consolas" Foreground="{StaticResource Accent}"/><TextBlock Text="A emulação roda sem bloquear a interface." Foreground="#FFC6D0DA"/><Button Content="▶ Iniciar xemu" Background="{StaticResource Accent}" Click="StartXemu_Click"/><Button Content="Pausar" Click="PauseXemu_Click"/><Button Content="Retomar" Click="ResumeXemu_Click"/><Button Content="Reiniciar" Click="ResetXemu_Click"/><Button Content="Encerrar emulação" Click="StopXemu_Click"/></StackPanel></PivotItem>
         <PivotItem>
-          <StackPanel Padding="38" Spacing="10" MaxWidth="900" HorizontalAlignment="Left">
-            <TextBlock Text="Arquivos do Xbox" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
-            <TextBlock Text="Arquivos são abertos pelo broker do Windows." Foreground="#FFC6D0DA"/>
-            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Selecionar flash ROM (BIOS)" Tag="flash" Click="SelectFile_Click"/><TextBlock x:Name="flashFileStatus" Grid.Column="1" Text="Não selecionado" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
-            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Selecionar MCPX boot ROM" Tag="bootrom" Click="SelectFile_Click"/><TextBlock x:Name="bootromFileStatus" Grid.Column="1" Text="Não selecionado" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
-            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Selecionar disco rígido" Tag="hdd" Click="SelectFile_Click"/><TextBlock x:Name="hddFileStatus" Grid.Column="1" Text="Não selecionado" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
-            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Selecionar DVD/XISO" Tag="dvd" Click="SelectFile_Click"/><TextBlock x:Name="dvdFileStatus" Grid.Column="1" Text="Não selecionado" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
-          </StackPanel>
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Padding="38" Spacing="16" MaxWidth="900" HorizontalAlignment="Left">
+              <TextBlock Text="xemu para Xbox/UWP" FontSize="38" FontWeight="SemiBold" Foreground="White"/>
+              <TextBlock Text="Open-source original Xbox emulator adapted for embedded execution in UWP applications." Foreground="#FFC6D0DA" FontSize="17" TextWrapping="Wrap"/>
+              <Border Background="{StaticResource Panel}" BorderBrush="#FF334152" BorderThickness="1" CornerRadius="6" Padding="20" Margin="0,8,0,0">
+                <StackPanel Spacing="8"><TextBlock Text="Rendering" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/><TextBlock Text="NV2A → OpenGL → Mesa Gallium D3D12 → D3D12/DXGI" FontFamily="Consolas" Foreground="White" TextWrapping="Wrap"/><TextBlock Text="The Xbox framebuffer is presented directly in the UWP-Port SwapChainPanel." Foreground="#FFAAB8C5" TextWrapping="Wrap"/></StackPanel>
+              </Border>
+              <Border Background="{StaticResource Panel}" BorderBrush="#FF334152" BorderThickness="1" CornerRadius="6" Padding="20">
+                <StackPanel Spacing="8"><TextBlock Text="UWP integration" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/><TextBlock Text="Brokered files, Xbox controller input through Windows.Gaming.Input, WASAPI audio, and a non-blocking emulation loop." Foreground="White" TextWrapping="Wrap"/><TextBlock Text="Select the required files on the Files tab to enable startup." Foreground="#FFAAB8C5" TextWrapping="Wrap"/></StackPanel>
+              </Border>
+              <Border Background="{StaticResource Panel}" BorderBrush="#FF334152" BorderThickness="1" CornerRadius="6" Padding="20">
+                <StackPanel Spacing="8"><TextBlock Text="Required files" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/><TextBlock Text="Flash BIOS, MCPX boot ROM, Xbox hard disk, and DVD/XISO media." Foreground="White" TextWrapping="Wrap"/><TextBlock Text="The EEPROM is optional and can be generated automatically by xemu." Foreground="#FFAAB8C5" TextWrapping="Wrap"/></StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
         </PivotItem>
-        <PivotItem><StackPanel Padding="38" Spacing="12" MaxWidth="760" HorizontalAlignment="Left"><TextBlock Text="Configurações" FontSize="30" FontWeight="SemiBold" Foreground="White"/><TextBlock Text="Renderizador" Foreground="White"/><ComboBox IsEnabled="False" SelectedIndex="0"><ComboBoxItem Content="OpenGL (Mesa Gallium D3D12)"/></ComboBox><CheckBox Content="DSP em tempo real" IsChecked="True" Foreground="White"/><CheckBox Content="DSP JIT (indisponível no UWP)" IsEnabled="False" Foreground="#FFAAB8C5"/><TextBlock Text="Escala interna" Foreground="White"/><ComboBox SelectedIndex="0"><ComboBoxItem Content="1x (nativa)"/><ComboBoxItem Content="2x"/><ComboBoxItem Content="3x"/></ComboBox><TextBlock Text="Somente opções existentes no xemu desktop e expostas pela DLL." Foreground="#FFAAB8C5"/></StackPanel></PivotItem>
+        <PivotItem>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Padding="38" Spacing="10" MaxWidth="900" HorizontalAlignment="Left">
+            <TextBlock Text="Xbox files" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
+            <TextBlock Text="Files are opened through the Windows broker." Foreground="#FFC6D0DA"/>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select flash ROM (BIOS)" Tag="flash" Click="SelectFile_Click"/><TextBlock x:Name="flashFileStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select MCPX boot ROM" Tag="bootrom" Click="SelectFile_Click"/><TextBlock x:Name="bootromFileStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select hard disk" Tag="hdd" Click="SelectFile_Click"/><TextBlock x:Name="hddFileStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select EEPROM" Tag="eeprom" Click="SelectFile_Click"/><TextBlock x:Name="eepromFileStatus" Grid.Column="1" Text="Automatic" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select DVD/XISO" Tag="dvd" Click="SelectFile_Click"/><TextBlock x:Name="dvdFileStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <TextBlock x:Name="requiredFilesStatus" Text="Select BIOS, MCPX, hard disk, and DVD/XISO to start." Foreground="#FFFFC857" TextWrapping="Wrap" Margin="0,14,0,0"/>
+            <Button x:Name="startButton" Content="▶ Start xemu" Background="{StaticResource Accent}" Click="StartXemu_Click" IsEnabled="False" Margin="0,4,0,20"/>
+          </StackPanel>
+          </ScrollViewer>
+        </PivotItem>
+        <PivotItem>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Padding="38" Spacing="10" MaxWidth="900" HorizontalAlignment="Left">
+            <TextBlock Text="Folders and Memory Units" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
+            <TextBlock Text="Optional locations and memory units accessed through the Windows broker." Foreground="#FFC6D0DA" TextWrapping="Wrap"/>
+            <TextBlock Text="Folders" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,14,0,0"/>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Screenshots folder" Tag="screenshots" Click="SelectFolder_Click"/><TextBlock x:Name="screenshotFolderStatus" Grid.Column="1" Text="Application default" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Games folder" Tag="games" Click="SelectFolder_Click"/><TextBlock x:Name="gamesFolderStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <TextBlock Text="Memory Units" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,14,0,0"/>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Port 1 · Slot A" Tag="xmu-p1a" Click="SelectFile_Click"/><TextBlock x:Name="xmuP1AStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Port 1 · Slot B" Tag="xmu-p1b" Click="SelectFile_Click"/><TextBlock x:Name="xmuP1BStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Port 2 · Slot A" Tag="xmu-p2a" Click="SelectFile_Click"/><TextBlock x:Name="xmuP2AStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Port 2 · Slot B" Tag="xmu-p2b" Click="SelectFile_Click"/><TextBlock x:Name="xmuP2BStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Port 3 · Slot A" Tag="xmu-p3a" Click="SelectFile_Click"/><TextBlock x:Name="xmuP3AStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Port 3 · Slot B" Tag="xmu-p3b" Click="SelectFile_Click"/><TextBlock x:Name="xmuP3BStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Port 4 · Slot A" Tag="xmu-p4a" Click="SelectFile_Click"/><TextBlock x:Name="xmuP4AStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Port 4 · Slot B" Tag="xmu-p4b" Click="SelectFile_Click"/><TextBlock x:Name="xmuP4BStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+          </StackPanel>
+          </ScrollViewer>
+        </PivotItem>
+        <PivotItem>
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Padding="38" Spacing="12" MaxWidth="900" HorizontalAlignment="Left">
+              <TextBlock Text="xemu settings" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
+              <TextBlock Text="Values are saved and applied to the DLL on the next startup." Foreground="#FFC6D0DA"/>
+
+              <TextBlock Text="General and performance" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
+              <CheckBox x:Name="checkUpdates" Content="Check for updates" Foreground="White"/>
+              <CheckBox x:Name="skipBootAnimation" Content="Skip boot animation" Foreground="White"/>
+              <CheckBox x:Name="hardFpu" Content="Accurate FPU emulation" Foreground="White"/>
+              <CheckBox x:Name="cacheShaders" Content="Save shader cache to disk" Foreground="White"/>
+              <CheckBox x:Name="filterSnapshots" Content="Show only snapshots for the current game" Foreground="White"/>
+
+              <TextBlock Text="Input" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
+              <CheckBox x:Name="autoBind" Content="Bind controllers automatically" Foreground="White"/>
+              <CheckBox x:Name="backgroundInput" Content="Capture input in the background" Foreground="White"/>
+              <CheckBox x:Name="invertLeftX" Content="Invert left stick X axis" Foreground="White"/>
+              <CheckBox x:Name="invertLeftY" Content="Invert left stick Y axis" Foreground="White"/>
+              <CheckBox x:Name="invertRightX" Content="Invert right stick X axis" Foreground="White"/>
+              <CheckBox x:Name="invertRightY" Content="Invert right stick Y axis" Foreground="White"/>
+              <TextBlock Text="Ports and expansions" Foreground="White" FontWeight="SemiBold"/>
+              <Grid ColumnSpacing="10" RowSpacing="8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="220"/><ColumnDefinition Width="170"/><ColumnDefinition Width="170"/></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="Emulated controller" Foreground="#FFAAB8C5"/><TextBlock Grid.Row="0" Grid.Column="2" Text="Slot A" Foreground="#FFAAB8C5"/><TextBlock Grid.Row="0" Grid.Column="3" Text="Slot B" Foreground="#FFAAB8C5"/>
+                <TextBlock Grid.Row="1" Text="Port 1" Foreground="White" VerticalAlignment="Center"/><ComboBox x:Name="port1Driver" Grid.Row="1" Grid.Column="1"><ComboBoxItem Content="Xbox Controller (Duke)"/><ComboBoxItem Content="Xbox Controller S"/></ComboBox><ComboBox x:Name="port1SlotA" Grid.Row="1" Grid.Column="2"><ComboBoxItem Content="None"/><ComboBoxItem Content="Memory Unit"/></ComboBox><ComboBox x:Name="port1SlotB" Grid.Row="1" Grid.Column="3"><ComboBoxItem Content="None"/><ComboBoxItem Content="Memory Unit"/></ComboBox>
+                <TextBlock Grid.Row="2" Text="Port 2" Foreground="White" VerticalAlignment="Center"/><ComboBox x:Name="port2Driver" Grid.Row="2" Grid.Column="1"><ComboBoxItem Content="Xbox Controller (Duke)"/><ComboBoxItem Content="Xbox Controller S"/></ComboBox><ComboBox x:Name="port2SlotA" Grid.Row="2" Grid.Column="2"><ComboBoxItem Content="None"/><ComboBoxItem Content="Memory Unit"/></ComboBox><ComboBox x:Name="port2SlotB" Grid.Row="2" Grid.Column="3"><ComboBoxItem Content="None"/><ComboBoxItem Content="Memory Unit"/></ComboBox>
+                <TextBlock Grid.Row="3" Text="Port 3" Foreground="White" VerticalAlignment="Center"/><ComboBox x:Name="port3Driver" Grid.Row="3" Grid.Column="1"><ComboBoxItem Content="Xbox Controller (Duke)"/><ComboBoxItem Content="Xbox Controller S"/></ComboBox><ComboBox x:Name="port3SlotA" Grid.Row="3" Grid.Column="2"><ComboBoxItem Content="None"/><ComboBoxItem Content="Memory Unit"/></ComboBox><ComboBox x:Name="port3SlotB" Grid.Row="3" Grid.Column="3"><ComboBoxItem Content="None"/><ComboBoxItem Content="Memory Unit"/></ComboBox>
+                <TextBlock Grid.Row="4" Text="Port 4" Foreground="White" VerticalAlignment="Center"/><ComboBox x:Name="port4Driver" Grid.Row="4" Grid.Column="1"><ComboBoxItem Content="Xbox Controller (Duke)"/><ComboBoxItem Content="Xbox Controller S"/></ComboBox><ComboBox x:Name="port4SlotA" Grid.Row="4" Grid.Column="2"><ComboBoxItem Content="None"/><ComboBoxItem Content="Memory Unit"/></ComboBox><ComboBox x:Name="port4SlotB" Grid.Row="4" Grid.Column="3"><ComboBoxItem Content="None"/><ComboBoxItem Content="Memory Unit"/></ComboBox>
+              </Grid>
+
+              <TextBlock Text="Video" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
+              <TextBlock Text="Renderer" Foreground="White"/><ComboBox IsEnabled="False" SelectedIndex="0"><ComboBoxItem Content="OpenGL (Mesa Gallium D3D12)"/></ComboBox>
+              <TextBlock Text="Internal resolution" Foreground="White"/><ComboBox x:Name="surfaceScale"><ComboBoxItem Content="1x (native)"/><ComboBoxItem Content="2x"/><ComboBoxItem Content="3x"/><ComboBoxItem Content="4x"/><ComboBoxItem Content="5x"/><ComboBoxItem Content="6x"/></ComboBox>
+              <TextBlock Text="Filtering" Foreground="White"/><ComboBox x:Name="filtering"><ComboBoxItem Content="Linear"/><ComboBoxItem Content="Nearest"/></ComboBox>
+              <TextBlock Text="Display mode" Foreground="White"/><ComboBox x:Name="displayFit"><ComboBoxItem Content="Center"/><ComboBoxItem Content="Scale while preserving aspect ratio"/><ComboBoxItem Content="Stretch"/></ComboBox>
+              <TextBlock Text="Aspect ratio" Foreground="White"/><ComboBox x:Name="aspectRatio"><ComboBoxItem Content="Native"/><ComboBoxItem Content="Automatic"/><ComboBoxItem Content="4:3"/><ComboBoxItem Content="16:9"/></ComboBox>
+              <TextBlock Text="Initial window size" Foreground="White"/><ComboBox x:Name="startupSize"><ComboBoxItem Content="Last used"/><ComboBoxItem Content="640x480"/><ComboBoxItem Content="720x480"/><ComboBoxItem Content="1280x720"/><ComboBoxItem Content="1280x800"/><ComboBoxItem Content="1280x960"/><ComboBoxItem Content="1920x1080"/><ComboBoxItem Content="2560x1440"/><ComboBoxItem Content="2560x1600"/><ComboBoxItem Content="2560x1920"/><ComboBoxItem Content="3840x2160"/></ComboBox>
+              <CheckBox x:Name="fullscreenStartup" Content="Start in fullscreen" Foreground="White"/>
+              <CheckBox x:Name="fullscreenExclusive" Content="Exclusive fullscreen" Foreground="White"/>
+              <CheckBox x:Name="vsync" Content="Vertical synchronization" Foreground="White"/>
+              <CheckBox x:Name="showMenubar" Content="Show xemu menu bar" Foreground="White"/>
+              <CheckBox x:Name="showNotifications" Content="Show notifications" Foreground="White"/>
+              <CheckBox x:Name="hideCursor" Content="Hide cursor when inactive" Foreground="White"/>
+              <CheckBox x:Name="useAnimations" Content="Interface animations" Foreground="White"/>
+              <CheckBox x:Name="autoUiScale" Content="Automatic interface scale" Foreground="White"/>
+              <TextBlock Text="Manual interface scale" Foreground="White"/><Slider x:Name="uiScale" Minimum="1" Maximum="3" StepFrequency="0.25" TickFrequency="0.25" TickPlacement="BottomRight"/>
+
+              <TextBlock Text="Audio" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
+              <CheckBox x:Name="useDsp" Content="Real-time DSP" Foreground="White"/>
+              <CheckBox x:Name="useDspJit" Content="DSP JIT" Foreground="White"/>
+              <CheckBox x:Name="useHrtf" Content="HRTF spatial audio" Foreground="White"/>
+              <TextBlock Text="Volume limit" Foreground="White"/><Slider x:Name="volumeLimit" Minimum="0" Maximum="1" StepFrequency="0.05" TickFrequency="0.25" TickPlacement="BottomRight"/>
+              <TextBlock Text="Voice workers (0 = automatic)" Foreground="White"/><Slider x:Name="voiceWorkers" Minimum="0" Maximum="8" StepFrequency="1" TickFrequency="1" TickPlacement="BottomRight"/>
+
+              <TextBlock Text="Network" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
+              <CheckBox x:Name="networkEnabled" Content="Enable network" Foreground="White"/>
+              <TextBlock Text="Backend" Foreground="White"/><ComboBox x:Name="networkBackend"><ComboBoxItem Content="NAT"/><ComboBoxItem Content="UDP"/></ComboBox>
+              <TextBlock Text="Local UDP address" Foreground="White"/><TextBox x:Name="udpBindAddress" PlaceholderText="0.0.0.0:9368"/>
+              <TextBlock Text="Remote UDP address" Foreground="White"/><TextBox x:Name="udpRemoteAddress" PlaceholderText="1.2.3.4:9368"/>
+              <TextBlock Text="NAT forwarding (one rule per line: tcp|udp,host port,Xbox port)" Foreground="White"/><TextBox x:Name="natForwardPorts" AcceptsReturn="True" Height="90" TextWrapping="NoWrap" PlaceholderText="tcp,8080,80" FontFamily="Consolas"/>
+              <TextBlock Text="PCAP is not offered because it is unavailable in the UWP build." Foreground="#FFAAB8C5"/>
+
+              <TextBlock Text="System" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
+              <TextBlock Text="Xbox memory" Foreground="White"/><ComboBox x:Name="memoryLimit"><ComboBoxItem Content="64 MB"/><ComboBoxItem Content="128 MB"/></ComboBox>
+              <TextBlock Text="Video cable (AV Pack)" Foreground="White"/><ComboBox x:Name="avPack"><ComboBoxItem Content="SCART"/><ComboBoxItem Content="HDTV"/><ComboBoxItem Content="VGA"/><ComboBoxItem Content="RFU"/><ComboBoxItem Content="S-Video"/><ComboBoxItem Content="Composite"/><ComboBoxItem Content="None"/></ComboBox>
+              <Button Content="Save settings" Background="{StaticResource Accent}" Click="SaveSettings_Click" Margin="0,16,0,30"/>
+            </StackPanel>
+          </ScrollViewer>
+        </PivotItem>
         <PivotItem><StackPanel Padding="38" Spacing="12"><TextBlock Text="Logs" FontSize="30" FontWeight="SemiBold" Foreground="White"/><TextBlock Text="ApplicationData\LocalFolder\xemu.log" FontFamily="Consolas" Foreground="{StaticResource Accent}"/><TextBlock x:Name="errorText" Foreground="#FFFF8A80" TextWrapping="Wrap"/></StackPanel></PivotItem>
       </Pivot>
     </Grid>

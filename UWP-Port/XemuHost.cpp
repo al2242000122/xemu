@@ -6,13 +6,16 @@
 #include <windows.storage.h>
 #include <windows.ui.xaml.media.dxinterop.h>
 
+#include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <limits>
 #include <sstream>
 
 using namespace UWP_Port;
 using namespace Windows::Storage;
 using namespace Windows::Storage::Streams;
+using namespace Windows::Gaming::Input;
 using namespace concurrency;
 
 namespace {
@@ -30,7 +33,15 @@ XemuHost::XemuHost()
       m_mesaModule(nullptr),
       m_running(false), m_stop(false), m_firstFrameLogged(false),
       m_attachMesa(nullptr), m_setMesaSwapChainAttach(nullptr),
-      m_updateSDLPanelSize(nullptr), m_renderPanel(nullptr),
+      m_updateSDLPanelSize(nullptr), m_attachVirtualJoystick(nullptr),
+      m_detachVirtualJoystick(nullptr), m_openJoystick(nullptr),
+      m_closeJoystick(nullptr), m_setVirtualAxis(nullptr),
+      m_setVirtualButton(nullptr), m_setEmbeddedCursorHidden(nullptr),
+      m_setGamepadState(nullptr),
+      m_virtualJoystickId(0),
+      m_virtualJoystick(nullptr), m_uwpGamepad(nullptr),
+      m_gamepadErrorLogged(false), m_lastGamepadTimestamp(0),
+      m_gamepadChangeLogs(0), m_renderPanel(nullptr),
       m_getApiVersion(nullptr), m_init(nullptr), m_start(nullptr),
       m_renderFrame(nullptr), m_step(nullptr), m_isHostRunning(nullptr),
       m_requestStop(nullptr), m_pause(nullptr),
@@ -48,13 +59,14 @@ XemuHost::XemuHost()
     if (file != INVALID_HANDLE_VALUE) {
         CloseHandle(file);
     }
-    WriteDiagnostic("[host] Nova sessao de diagnostico UWP (desktop debug ativo)");
+    WriteDiagnostic("[host] New UWP diagnostic session (desktop debug enabled)");
 }
 
 XemuHost::~XemuHost()
 {
-    WriteDiagnostic("[host] Encerrando XemuHost");
+    WriteDiagnostic("[host] Shutting down XemuHost");
     Stop();
+    DetachUWPGamepad();
     if (m_module) {
         FreeLibrary(m_module);
     }
@@ -72,28 +84,28 @@ XemuHost::~XemuHost()
 bool XemuHost::AttachRenderPanel(Windows::UI::Xaml::Controls::SwapChainPanel^ panel)
 {
     if (!panel) {
-        SetError("SwapChainPanel do xemu nao foi fornecido");
+        SetError("xemu SwapChainPanel was not provided");
         return false;
     }
 
-    WriteDiagnostic("[display] Anexando SwapChainPanel ao SDL3 e ao Mesa");
+    WriteDiagnostic("[display] Attaching SwapChainPanel to SDL3 and Mesa");
     m_sdlModule = LoadPackagedLibrary(L"SDL3.dll", 0);
     if (!m_sdlModule) {
-        WriteDiagnostic("[loader] SDL3.dll falhou com erro Win32 " +
+        WriteDiagnostic("[loader] SDL3.dll failed with Win32 error " +
                         std::to_string(GetLastError()));
     }
     m_mesaModule = LoadPackagedLibrary(L"gallium_wgl.dll", 0);
     if (!m_mesaModule) {
-        WriteDiagnostic("[loader] gallium_wgl.dll falhou com erro Win32 " +
+        WriteDiagnostic("[loader] gallium_wgl.dll failed with Win32 error " +
                         std::to_string(GetLastError()));
     }
     m_openGLModule = LoadPackagedLibrary(L"opengl32.dll", 0);
     if (!m_openGLModule) {
-        WriteDiagnostic("[loader] opengl32.dll falhou com erro Win32 " +
+        WriteDiagnostic("[loader] opengl32.dll failed with Win32 error " +
                         std::to_string(GetLastError()));
     }
     if (!m_sdlModule || !m_mesaModule || !m_openGLModule) {
-        SetError("Falha ao carregar SDL3.dll, opengl32.dll ou gallium_wgl.dll para preparar o renderer");
+        SetError("Failed to load SDL3.dll, opengl32.dll, or gallium_wgl.dll while preparing the renderer");
         return false;
     }
 
@@ -117,7 +129,10 @@ bool XemuHost::AttachRenderPanel(Windows::UI::Xaml::Controls::SwapChainPanel^ pa
     if (!attachSDL || !m_attachMesa || !m_setMesaSwapChainAttach ||
         !m_updateSDLPanelSize ||
         !setSDLLog || !setMesaLog) {
-        SetError("SDL3/Mesa nao expoem a API de embedding XAML esperada");
+        SetError("SDL3/Mesa do not expose the expected XAML embedding API");
+        return false;
+    }
+    if (!ResolveSDLInput()) {
         return false;
     }
 
@@ -127,7 +142,7 @@ bool XemuHost::AttachRenderPanel(Windows::UI::Xaml::Controls::SwapChainPanel^ pa
     int logicalWidth = static_cast<int>(panel->ActualWidth + 0.5);
     int logicalHeight = static_cast<int>(panel->ActualHeight + 0.5);
     if (logicalWidth < 1 || logicalHeight < 1 || width < 1 || height < 1) {
-        SetError("SwapChainPanel ainda nao possui dimensoes validas");
+        SetError("SwapChainPanel does not have valid dimensions yet");
         return false;
     }
     setSDLLog(&XemuHost::SDLLog, this);
@@ -136,15 +151,229 @@ bool XemuHost::AttachRenderPanel(Windows::UI::Xaml::Controls::SwapChainPanel^ pa
     m_setMesaSwapChainAttach(&XemuHost::AttachMesaSwapChain, this);
     m_attachMesa(inspectable, width, height);
     if (!attachSDL(inspectable)) {
-        SetError("SDL3 rejeitou o SwapChainPanel do host XAML");
+        SetError("SDL3 rejected the XAML host SwapChainPanel");
         return false;
     }
     if (!m_updateSDLPanelSize(logicalWidth, logicalHeight, width, height)) {
-        SetError("SDL3 rejeitou as dimensoes do SwapChainPanel");
+        SetError("SDL3 rejected the SwapChainPanel dimensions");
         return false;
     }
-    WriteDiagnostic("[display] SwapChainPanel anexado; SDL video inicializado no thread da UI");
+    WriteDiagnostic("[display] SwapChainPanel attached; SDL video initialized on the UI thread");
     return true;
+}
+
+bool XemuHost::ResolveSDLInput()
+{
+    m_attachVirtualJoystick = reinterpret_cast<AttachVirtualJoystick>(
+        GetProcAddress(m_sdlModule, "SDL_AttachVirtualJoystick"));
+    m_detachVirtualJoystick = reinterpret_cast<DetachVirtualJoystick>(
+        GetProcAddress(m_sdlModule, "SDL_DetachVirtualJoystick"));
+    m_openJoystick = reinterpret_cast<OpenJoystick>(
+        GetProcAddress(m_sdlModule, "SDL_OpenJoystick"));
+    m_closeJoystick = reinterpret_cast<CloseJoystick>(
+        GetProcAddress(m_sdlModule, "SDL_CloseJoystick"));
+    m_setVirtualAxis = reinterpret_cast<SetVirtualAxis>(
+        GetProcAddress(m_sdlModule, "SDL_SetJoystickVirtualAxis"));
+    m_setVirtualButton = reinterpret_cast<SetVirtualButton>(
+        GetProcAddress(m_sdlModule, "SDL_SetJoystickVirtualButton"));
+    m_setEmbeddedCursorHidden = reinterpret_cast<SetEmbeddedCursorHidden>(
+        GetProcAddress(m_sdlModule, "SDL_WinRTSetEmbeddedCursorHidden"));
+    if (!m_attachVirtualJoystick || !m_detachVirtualJoystick ||
+        !m_openJoystick || !m_closeJoystick || !m_setVirtualAxis ||
+        !m_setVirtualButton || !m_setEmbeddedCursorHidden) {
+        SetError("SDL3 does not expose the virtual joystick API required on Xbox");
+        return false;
+    }
+    WriteDiagnostic("[input] UWP Gamepad -> SDL virtual joystick bridge resolved");
+    m_setEmbeddedCursorHidden(false);
+    return true;
+}
+
+void XemuHost::DetachUWPGamepad()
+{
+    if (m_setGamepadState) {
+        QemuHostGamepadState state{};
+        state.size = sizeof(state);
+        m_setGamepadState(0, &state);
+    }
+    if (m_virtualJoystick && m_closeJoystick) {
+        m_closeJoystick(m_virtualJoystick);
+    }
+    m_virtualJoystick = nullptr;
+    if (m_virtualJoystickId && m_detachVirtualJoystick) {
+        m_detachVirtualJoystick(m_virtualJoystickId);
+    }
+    m_virtualJoystickId = 0;
+    m_uwpGamepad = nullptr;
+    m_gamepadErrorLogged = false;
+}
+
+void XemuHost::UpdateUWPGamepad()
+{
+    auto gamepads = Gamepad::Gamepads;
+    if (!gamepads || gamepads->Size == 0) {
+        if (m_virtualJoystickId) {
+            WriteDiagnostic("[input] Xbox controller disconnected");
+            DetachUWPGamepad();
+        }
+        return;
+    }
+
+    Gamepad^ gamepad = gamepads->GetAt(0);
+    if (gamepad != m_uwpGamepad || !m_virtualJoystick) {
+        DetachUWPGamepad();
+        SDL_VirtualJoystickDesc desc{};
+        desc.version = sizeof(desc);
+        desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+        desc.vendor_id = 0x045e;
+        desc.product_id = 0x02ff;
+        desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+        desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+        desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1u;
+        desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1u;
+        desc.name = "Xbox Gamepad (UWP)";
+        desc.userdata = this;
+        m_virtualJoystickId = m_attachVirtualJoystick(&desc);
+        if (!m_virtualJoystickId) {
+            WriteDiagnostic("[input] Failed to attach SDL virtual joystick");
+            return;
+        }
+        m_virtualJoystick = m_openJoystick(m_virtualJoystickId);
+        if (!m_virtualJoystick) {
+            WriteDiagnostic("[input] Failed to open SDL virtual joystick");
+            m_detachVirtualJoystick(m_virtualJoystickId);
+            m_virtualJoystickId = 0;
+            return;
+        }
+        m_uwpGamepad = gamepad;
+        WriteDiagnostic("[input] Xbox Gamepad (UWP) connected to SDL; WinRT devices=" +
+                        std::to_string(gamepads->Size));
+    }
+
+    unsigned int pressedButtons = 0;
+    double leftTrigger = 0.0;
+    double rightTrigger = 0.0;
+    double leftX = 0.0;
+    double leftY = 0.0;
+    double rightX = 0.0;
+    double rightY = 0.0;
+    uint64_t latestTimestamp = 0;
+    auto strongest = [](double current, double candidate) {
+        return fabs(candidate) > fabs(current) ? candidate : current;
+    };
+    for (unsigned int i = 0; i < gamepads->Size; ++i) {
+        GamepadReading candidate = gamepads->GetAt(i)->GetCurrentReading();
+        pressedButtons |= static_cast<unsigned int>(candidate.Buttons);
+        leftTrigger = (std::max)(leftTrigger, candidate.LeftTrigger);
+        rightTrigger = (std::max)(rightTrigger, candidate.RightTrigger);
+        leftX = strongest(leftX, candidate.LeftThumbstickX);
+        leftY = strongest(leftY, candidate.LeftThumbstickY);
+        rightX = strongest(rightX, candidate.RightThumbstickX);
+        rightY = strongest(rightY, candidate.RightThumbstickY);
+        latestTimestamp = (std::max)(latestTimestamp, candidate.Timestamp);
+    }
+    if (latestTimestamp != m_lastGamepadTimestamp &&
+        m_gamepadChangeLogs < 32) {
+        const bool active = pressedButtons != 0 || leftTrigger > 0.01 ||
+            rightTrigger > 0.01 || fabs(leftX) > 0.05 ||
+            fabs(leftY) > 0.05 || fabs(rightX) > 0.05 ||
+            fabs(rightY) > 0.05;
+        if (active) {
+            std::ostringstream message;
+            message << "[input] GamepadReading buttons=0x" << std::hex
+                    << pressedButtons << std::dec << " triggers="
+                    << leftTrigger << "," << rightTrigger << " sticks="
+                    << leftX << "," << leftY << "," << rightX << ","
+                    << rightY << " devices=" << gamepads->Size;
+            WriteDiagnostic(message.str());
+            ++m_gamepadChangeLogs;
+        }
+        m_lastGamepadTimestamp = latestTimestamp;
+    }
+    struct ButtonMap { GamepadButtons source; int target; };
+    static const ButtonMap buttons[] = {
+        { GamepadButtons::A, SDL_GAMEPAD_BUTTON_SOUTH },
+        { GamepadButtons::B, SDL_GAMEPAD_BUTTON_EAST },
+        { GamepadButtons::X, SDL_GAMEPAD_BUTTON_WEST },
+        { GamepadButtons::Y, SDL_GAMEPAD_BUTTON_NORTH },
+        { GamepadButtons::View, SDL_GAMEPAD_BUTTON_BACK },
+        { GamepadButtons::Menu, SDL_GAMEPAD_BUTTON_START },
+        { GamepadButtons::LeftThumbstick, SDL_GAMEPAD_BUTTON_LEFT_STICK },
+        { GamepadButtons::RightThumbstick, SDL_GAMEPAD_BUTTON_RIGHT_STICK },
+        { GamepadButtons::LeftShoulder, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER },
+        { GamepadButtons::RightShoulder, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER },
+        { GamepadButtons::DPadUp, SDL_GAMEPAD_BUTTON_DPAD_UP },
+        { GamepadButtons::DPadDown, SDL_GAMEPAD_BUTTON_DPAD_DOWN },
+        { GamepadButtons::DPadLeft, SDL_GAMEPAD_BUTTON_DPAD_LEFT },
+        { GamepadButtons::DPadRight, SDL_GAMEPAD_BUTTON_DPAD_RIGHT },
+    };
+    for (const auto& button : buttons) {
+        m_setVirtualButton(m_virtualJoystick, button.target,
+            (pressedButtons & static_cast<unsigned int>(button.source)) != 0);
+    }
+    auto stick = [](double value) -> int16_t {
+        double scaled = value < 0.0 ? value * 32768.0 : value * 32767.0;
+        return static_cast<int16_t>(scaled);
+    };
+    auto trigger = [](double value) -> int16_t {
+        return static_cast<int16_t>(value * 65535.0 - 32768.0);
+    };
+    m_setVirtualAxis(m_virtualJoystick, SDL_GAMEPAD_AXIS_LEFTX,
+                     stick(leftX));
+    m_setVirtualAxis(m_virtualJoystick, SDL_GAMEPAD_AXIS_LEFTY,
+                     stick(-leftY));
+    m_setVirtualAxis(m_virtualJoystick, SDL_GAMEPAD_AXIS_RIGHTX,
+                     stick(rightX));
+    m_setVirtualAxis(m_virtualJoystick, SDL_GAMEPAD_AXIS_RIGHTY,
+                     stick(-rightY));
+    m_setVirtualAxis(m_virtualJoystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER,
+                     trigger(leftTrigger));
+    m_setVirtualAxis(m_virtualJoystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER,
+                     trigger(rightTrigger));
+
+    QemuHostGamepadState hostState{};
+    hostState.size = sizeof(hostState);
+    hostState.connected = true;
+    const struct HostButtonMap { GamepadButtons source; uint32_t target; }
+        hostButtons[] = {
+            { GamepadButtons::A, QEMU_HOST_GAMEPAD_A },
+            { GamepadButtons::B, QEMU_HOST_GAMEPAD_B },
+            { GamepadButtons::X, QEMU_HOST_GAMEPAD_X },
+            { GamepadButtons::Y, QEMU_HOST_GAMEPAD_Y },
+            { GamepadButtons::DPadLeft, QEMU_HOST_GAMEPAD_DPAD_LEFT },
+            { GamepadButtons::DPadUp, QEMU_HOST_GAMEPAD_DPAD_UP },
+            { GamepadButtons::DPadRight, QEMU_HOST_GAMEPAD_DPAD_RIGHT },
+            { GamepadButtons::DPadDown, QEMU_HOST_GAMEPAD_DPAD_DOWN },
+            { GamepadButtons::View, QEMU_HOST_GAMEPAD_BACK },
+            { GamepadButtons::Menu, QEMU_HOST_GAMEPAD_START },
+            { GamepadButtons::LeftShoulder,
+              QEMU_HOST_GAMEPAD_LEFT_SHOULDER },
+            { GamepadButtons::RightShoulder,
+              QEMU_HOST_GAMEPAD_RIGHT_SHOULDER },
+            { GamepadButtons::LeftThumbstick,
+              QEMU_HOST_GAMEPAD_LEFT_STICK },
+            { GamepadButtons::RightThumbstick,
+              QEMU_HOST_GAMEPAD_RIGHT_STICK },
+        };
+    for (const auto& button : hostButtons) {
+        if (pressedButtons & static_cast<unsigned int>(button.source)) {
+            hostState.buttons |= button.target;
+        }
+    }
+    auto hostTrigger = [](double value) -> int16_t {
+        return static_cast<int16_t>(value * 32767.0);
+    };
+    hostState.left_trigger = hostTrigger(leftTrigger);
+    hostState.right_trigger = hostTrigger(rightTrigger);
+    hostState.left_x = stick(leftX);
+    hostState.left_y = stick(leftY);
+    hostState.right_x = stick(rightX);
+    hostState.right_y = stick(rightY);
+    if (m_setGamepadState(0, &hostState) != 0 && !m_gamepadErrorLogged) {
+        WriteDiagnostic("[input] Failed to send direct state to XID");
+        m_gamepadErrorLogged = true;
+    }
+
 }
 
 long __cdecl XemuHost::AttachMesaSwapChain(void* opaque, void* swapchain)
@@ -236,7 +465,7 @@ bool XemuHost::UpdateRenderPanelSize(
         HRESULT result = m_swapChain->SetMatrixTransform(&inverseScale);
         if (FAILED(result)) {
             std::ostringstream message;
-            message << "Falha ao remover escala XAML do swapchain (0x"
+            message << "Failed to remove XAML scaling from the swapchain (0x"
                     << std::hex << static_cast<unsigned long>(result) << ")";
             SetError(message.str());
             return false;
@@ -270,10 +499,10 @@ bool XemuHost::Resolve(T& target, const char* name)
 {
     target = reinterpret_cast<T>(GetProcAddress(m_module, name));
     if (!target) {
-        SetError(std::string("API ausente em qemu-system-i386.dll: ") + name);
+        SetError(std::string("Missing API in qemu-system-i386.dll: ") + name);
         return false;
     }
-    WriteDiagnostic(std::string("[loader] API resolvida: ") + name);
+    WriteDiagnostic(std::string("[loader] API resolved: ") + name);
     return true;
 }
 
@@ -282,17 +511,17 @@ bool XemuHost::Load()
     if (m_module) {
         return true;
     }
-    WriteDiagnostic("[loader] Carregando qemu-system-i386.dll");
+    WriteDiagnostic("[loader] Loading qemu-system-i386.dll");
     m_module = LoadPackagedLibrary(L"qemu-system-i386.dll", 0);
     if (!m_module) {
         DWORD error = GetLastError();
         std::ostringstream message;
-        message << "Falha ao carregar qemu-system-i386.dll do pacote (erro Win32 "
+        message << "Failed to load qemu-system-i386.dll from the package (Win32 error "
                 << error << ")";
         SetError(message.str());
         return false;
     }
-    WriteDiagnostic("[loader] qemu-system-i386.dll carregada");
+    WriteDiagnostic("[loader] qemu-system-i386.dll loaded");
 
     bool ok = Resolve(m_getApiVersion, "qemu_host_get_api_version") &&
               Resolve(m_init, "qemu_host_init") &&
@@ -309,16 +538,17 @@ bool XemuHost::Load()
               Resolve(m_cleanup, "qemu_host_cleanup") &&
               Resolve(m_registerLog, "qemu_host_register_log_callback") &&
               Resolve(m_setLogFile, "qemu_host_set_log_file") &&
+              Resolve(m_setGamepadState, "qemu_host_set_gamepad_state") &&
               Resolve(m_registerBrokeredStorage, "qemu_host_register_brokered_storage_callbacks") &&
               Resolve(m_mountFile, "qemu_host_mount_brokered_file") &&
               Resolve(m_mountFolder, "qemu_host_mount_brokered_folder");
     if (!ok || (m_getApiVersion() >> 16) != QEMU_HOST_API_VERSION_MAJOR) {
-        SetError("Versao incompativel da API de embedding do xemu");
+        SetError("Incompatible xemu embedding API version");
         return false;
     }
-    WriteDiagnostic("[loader] API de embedding compativel");
+    WriteDiagnostic("[loader] Embedding API is compatible");
     m_registerLog(&XemuHost::Log, this);
-    WriteDiagnostic("[loader] Callback de log do xemu registrado");
+    WriteDiagnostic("[loader] xemu log callback registered");
 
     QemuHostBrokeredStorageCallbacks storage{};
     storage.size = sizeof(storage);
@@ -336,10 +566,10 @@ bool XemuHost::Load()
     storage.readdir = &XemuHost::ReadBrokeredDirectory;
     storage.truncate = &XemuHost::TruncateBrokeredFile;
     int storageResult = m_registerBrokeredStorage(&storage, this);
-    WriteDiagnostic("[storage] Registro dos callbacks brokered retornou " +
+    WriteDiagnostic("[storage] Brokered callback registration returned " +
                     std::to_string(storageResult));
     if (storageResult) {
-        SetError("Falha ao registrar armazenamento brokered (erro " +
+        SetError("Failed to register brokered storage (error " +
                  std::to_string(storageResult) + ")");
         return false;
     }
@@ -351,7 +581,10 @@ bool XemuHost::Start(const std::vector<std::string>& arguments)
     if (m_running.load() || !Load()) {
         return m_running.load();
     }
-    WriteDiagnostic("[lifecycle] Solicitacao para iniciar xemu");
+    WriteDiagnostic("[lifecycle] Request to start xemu");
+    if (m_setEmbeddedCursorHidden) {
+        m_setEmbeddedCursorHidden(true);
+    }
     m_stop.store(false);
     m_thread = std::thread(&XemuHost::Run, this, arguments);
     return true;
@@ -359,18 +592,18 @@ bool XemuHost::Start(const std::vector<std::string>& arguments)
 
 void XemuHost::Run(std::vector<std::string> arguments)
 {
-    WriteDiagnostic("[lifecycle] Thread de inicializacao iniciada");
+    WriteDiagnostic("[lifecycle] Initialization thread started");
     HRESULT apartmentResult = RoInitialize(RO_INIT_MULTITHREADED);
     if (FAILED(apartmentResult) && apartmentResult != RPC_E_CHANGED_MODE) {
         std::ostringstream message;
-        message << "Falha ao inicializar apartment WinRT da thread do xemu (0x"
+        message << "Failed to initialize the WinRT apartment for the xemu thread (0x"
                 << std::hex << static_cast<unsigned long>(apartmentResult)
                 << ")";
         SetError(message.str());
         return;
     }
     bool uninitializeApartment = SUCCEEDED(apartmentResult);
-    WriteDiagnostic("[lifecycle] Apartment WinRT MTA inicializado");
+    WriteDiagnostic("[lifecycle] WinRT MTA apartment initialized");
     if (arguments.empty()) {
         auto configPath = ApplicationData::Current->LocalFolder->Path +
                           L"\\xemu.toml";
@@ -391,20 +624,20 @@ void XemuHost::Run(std::vector<std::string> arguments)
     }
     argv.push_back(nullptr);
 
-    WriteDiagnostic("[lifecycle] Chamando qemu_host_init");
+    WriteDiagnostic("[lifecycle] Calling qemu_host_init");
     int rc = m_init(static_cast<int>(arguments.size()), argv.data());
-    WriteDiagnostic("[lifecycle] qemu_host_init retornou " + std::to_string(rc));
+    WriteDiagnostic("[lifecycle] qemu_host_init returned " + std::to_string(rc));
     if (!rc) {
-        WriteDiagnostic("[lifecycle] Chamando qemu_host_start");
+        WriteDiagnostic("[lifecycle] Calling qemu_host_start");
         rc = m_start();
-        WriteDiagnostic("[lifecycle] qemu_host_start retornou " + std::to_string(rc));
+        WriteDiagnostic("[lifecycle] qemu_host_start returned " + std::to_string(rc));
     }
     m_running.store(rc == 0);
     if (!rc) {
         int status = 0;
-        WriteDiagnostic("[lifecycle] Aguardando o loop principal do xemu");
+        WriteDiagnostic("[lifecycle] Waiting for the xemu main loop");
         int joinResult = m_join(&status);
-        WriteDiagnostic("[lifecycle] qemu_host_join retornou " +
+        WriteDiagnostic("[lifecycle] qemu_host_join returned " +
                         std::to_string(joinResult) + ", status " +
                         std::to_string(status));
         if (!rc) {
@@ -412,10 +645,10 @@ void XemuHost::Run(std::vector<std::string> arguments)
         }
     }
     m_running.store(false);
-    WriteDiagnostic("[lifecycle] Chamando qemu_host_cleanup");
+    WriteDiagnostic("[lifecycle] Calling qemu_host_cleanup");
     m_cleanup();
     if (rc) {
-        SetError("O loop incorporado do xemu terminou com erro " +
+        SetError("The embedded xemu loop ended with error " +
                  std::to_string(rc));
     }
     if (uninitializeApartment) {
@@ -425,13 +658,16 @@ void XemuHost::Run(std::vector<std::string> arguments)
 
 void XemuHost::Stop()
 {
-    WriteDiagnostic("[lifecycle] Solicitacao para parar xemu");
+    WriteDiagnostic("[lifecycle] Request to stop xemu");
     m_stop.store(true);
     if (m_running.load() && m_requestStop) {
         m_requestStop();
     }
     if (m_thread.joinable()) {
         m_thread.join();
+    }
+    if (m_setEmbeddedCursorHidden) {
+        m_setEmbeddedCursorHidden(false);
     }
 }
 
@@ -445,15 +681,26 @@ bool XemuHost::RenderFrame()
     if (!m_running.load() || !m_renderFrame || !m_isHostRunning()) {
         return false;
     }
+    try {
+        UpdateUWPGamepad();
+    } catch (Platform::Exception^ exception) {
+        if (!m_gamepadErrorLogged) {
+            std::ostringstream message;
+            message << "[input] UWP Gamepad bridge failed (0x" << std::hex
+                    << static_cast<unsigned long>(exception->HResult) << ")";
+            WriteDiagnostic(message.str());
+            m_gamepadErrorLogged = true;
+        }
+    }
     bool firstFrame = !m_firstFrameLogged.exchange(true);
     if (firstFrame) {
-        WriteDiagnostic("[display] Primeiro frame OpenGL no thread XAML iniciado");
+        WriteDiagnostic("[display] First OpenGL frame started on the XAML thread");
     }
     int rc = m_renderFrame();
     if (firstFrame) {
         WriteDiagnostic(rc == 0 ?
-            "[display] Primeiro frame OpenGL apresentado" :
-            "[display] Falha no primeiro frame OpenGL: " + std::to_string(rc));
+            "[display] First OpenGL frame presented" :
+            "[display] First OpenGL frame failed: " + std::to_string(rc));
     }
     return rc == 0;
 }
@@ -462,15 +709,15 @@ bool XemuHost::MountFile(const std::string& virtualPath, StorageFile^ file,
                          IRandomAccessStream^ stream)
 {
     if (!file || !stream || !Load()) {
-        SetError("Falha ao preparar " + virtualPath + " para montagem");
+        SetError("Failed to prepare " + virtualPath + " for mounting");
         return false;
     }
     int rc = m_mountFile(virtualPath.c_str(), reinterpret_cast<IInspectable*>(file),
                          reinterpret_cast<IInspectable*>(stream));
-    WriteDiagnostic("[storage] Montagem " + virtualPath + " retornou " +
+    WriteDiagnostic("[storage] Mount " + virtualPath + " returned " +
                     std::to_string(rc));
     if (rc) {
-        SetError("Falha ao montar " + virtualPath + " (erro " +
+        SetError("Failed to mount " + virtualPath + " (error " +
                  std::to_string(rc) + ")");
     }
     return rc == 0;
@@ -486,7 +733,7 @@ bool XemuHost::MountFolder(const std::string& virtualPath,
 
 void XemuHost::SetError(const std::string& error)
 {
-    WriteDiagnostic("[erro] " + error);
+    WriteDiagnostic("[error] " + error);
     std::lock_guard<std::mutex> lock(m_mutex);
     m_error = error;
 }
@@ -558,8 +805,8 @@ int XemuHost::OpenBrokeredFile(void* opaque, void* storageFile,
         *handle = reinterpret_cast<int64_t>(brokered);
         auto self = static_cast<XemuHost*>(opaque);
         if (self) {
-            self->WriteDiagnostic("[storage] Handle aberto: " + name +
-                                  ", tamanho " +
+            self->WriteDiagnostic("[storage] Handle opened: " + name +
+                                  ", size " +
                                   std::to_string(stream->Size) + " bytes");
         }
         return 0;
@@ -588,8 +835,8 @@ int64_t XemuHost::ReadBrokeredFile(void* opaque, int64_t handle, void* buffer,
         unsigned int count = static_cast<unsigned int>((std::min)(
             size, static_cast<size_t>((std::numeric_limits<unsigned int>::max)())));
         if (self && sequence < 32) {
-            self->WriteDiagnostic("[storage] Leitura brokered #" +
-                                  std::to_string(sequence) + " iniciada: " +
+            self->WriteDiagnostic("[storage] Brokered read #" +
+                                  std::to_string(sequence) + " started: " +
                                   brokered->name + " @" +
                                   std::to_string(position) + ", " +
                                   std::to_string(count) + " bytes");
@@ -603,15 +850,15 @@ int64_t XemuHost::ReadBrokeredFile(void* opaque, int64_t handle, void* buffer,
         }
         reader->DetachStream();
         if (self && sequence < 32) {
-            self->WriteDiagnostic("[storage] Leitura brokered #" +
-                                  std::to_string(sequence) + " concluida: " +
+            self->WriteDiagnostic("[storage] Brokered read #" +
+                                  std::to_string(sequence) + " completed: " +
                                   std::to_string(loaded) + " bytes");
         }
         return loaded;
     } catch (...) {
         auto self = static_cast<XemuHost*>(opaque);
         if (self) {
-            self->WriteDiagnostic("[storage] Excecao durante leitura brokered");
+            self->WriteDiagnostic("[storage] Exception during brokered read");
         }
         return -EIO;
     }

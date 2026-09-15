@@ -110,7 +110,7 @@ void App::OnLaunched(Windows::ApplicationModel::Activation::LaunchActivatedEvent
 				CloseHandle(file);
 			}
 			auto message = ref new TextBlock();
-			message->Text = "Falha ao carregar a interface: " + ex->Message;
+			message->Text = "Failed to load the interface: " + ex->Message;
 			message->TextWrapping = TextWrapping::Wrap;
 			message->Margin = Thickness(32);
 			rootFrame->Content = message;
