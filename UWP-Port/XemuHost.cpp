@@ -9,8 +9,10 @@
 #include <algorithm>
 #include <cerrno>
 #include <cmath>
+#include <fcntl.h>
 #include <limits>
 #include <sstream>
+#include <vector>
 
 using namespace UWP_Port;
 using namespace Windows::Storage;
@@ -19,13 +21,115 @@ using namespace Windows::Gaming::Input;
 using namespace concurrency;
 
 namespace {
-struct BrokeredFileStream {
+struct BrokeredHandle {
+    enum class Kind { File, Directory };
+    explicit BrokeredHandle(Kind value) : kind(value) {}
+    virtual ~BrokeredHandle() = default;
+    Kind kind;
+};
+
+struct BrokeredFileStream : BrokeredHandle {
     IRandomAccessStream^ stream;
     std::string name;
 
     BrokeredFileStream(IRandomAccessStream^ value, const std::string& fileName)
-        : stream(value), name(fileName) {}
+        : BrokeredHandle(Kind::File), stream(value), name(fileName) {}
 };
+
+struct BrokeredDirectoryEntry {
+    std::string name;
+    QemuHostStorageStat stat;
+};
+
+struct BrokeredDirectory : BrokeredHandle {
+    std::vector<BrokeredDirectoryEntry> entries;
+    size_t position;
+
+    BrokeredDirectory() : BrokeredHandle(Kind::Directory), position(0) {}
+};
+
+std::string ToUtf8(Platform::String^ value)
+{
+    if (!value) return {};
+    int size = WideCharToMultiByte(CP_UTF8, 0, value->Data(), value->Length(),
+                                   nullptr, 0, nullptr, nullptr);
+    std::string result(static_cast<size_t>(size), '\0');
+    if (size) {
+        WideCharToMultiByte(CP_UTF8, 0, value->Data(), value->Length(),
+                            &result[0], size, nullptr, nullptr);
+    }
+    return result;
+}
+
+Platform::String^ ToPlatformString(const std::string& value)
+{
+    int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                   value.data(), static_cast<int>(value.size()),
+                                   nullptr, 0);
+    if (size <= 0) return nullptr;
+    std::wstring wide(static_cast<size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                        static_cast<int>(value.size()), &wide[0], size);
+    return ref new Platform::String(wide.data(), static_cast<unsigned>(wide.size()));
+}
+
+bool SplitBrokeredPath(const char* relativePath,
+                       std::vector<Platform::String^>& components)
+{
+    std::string path = relativePath ? relativePath : "";
+    size_t begin = 0;
+    while (begin < path.size()) {
+        size_t end = path.find_first_of("/\\", begin);
+        std::string component = path.substr(
+            begin, end == std::string::npos ? std::string::npos : end - begin);
+        if (component.empty() || component == "." || component == "..") {
+            return false;
+        }
+        auto converted = ToPlatformString(component);
+        if (!converted) return false;
+        components.push_back(converted);
+        if (end == std::string::npos) break;
+        begin = end + 1;
+        if (begin == path.size()) return false;
+    }
+    return true;
+}
+
+StorageFolder^ ResolveFolder(StorageFolder^ root,
+                             const std::vector<Platform::String^>& components,
+                             size_t count)
+{
+    auto folder = root;
+    for (size_t i = 0; i < count; ++i) {
+        folder = create_task(folder->GetFolderAsync(components[i])).get();
+    }
+    return folder;
+}
+
+void FillDirectoryStat(QemuHostStorageStat* stat)
+{
+    memset(stat, 0, sizeof(*stat));
+    stat->mode = 0040555;
+    stat->type = 2;
+}
+
+void FillFileStat(uint64_t size, QemuHostStorageStat* stat)
+{
+    memset(stat, 0, sizeof(*stat));
+    stat->size = size;
+    stat->allocated_size = size;
+    stat->mode = 0100444;
+    stat->type = 1;
+}
+
+int ExceptionToErrno(Platform::Exception^ exception)
+{
+    HRESULT hr = exception ? exception->HResult : E_FAIL;
+    if (hr == E_ACCESSDENIED) return -EACCES;
+    if (hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) ||
+        hr == HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND)) return -ENOENT;
+    return -EIO;
+}
 }
 
 XemuHost::XemuHost()
@@ -562,6 +666,7 @@ bool XemuHost::Load()
     storage.seek = &XemuHost::SeekBrokeredFile;
     storage.close = &XemuHost::CloseBrokeredFile;
     storage.stat_file = &XemuHost::StatBrokeredFile;
+    storage.stat_at = &XemuHost::StatBrokeredPath;
     storage.flush = &XemuHost::FlushBrokeredFile;
     storage.readdir = &XemuHost::ReadBrokeredDirectory;
     storage.truncate = &XemuHost::TruncateBrokeredFile;
@@ -726,9 +831,19 @@ bool XemuHost::MountFile(const std::string& virtualPath, StorageFile^ file,
 bool XemuHost::MountFolder(const std::string& virtualPath,
                            StorageFolder^ folder)
 {
-    return m_mountFolder && folder &&
-        m_mountFolder(virtualPath.c_str(),
-                      reinterpret_cast<IInspectable*>(folder)) == 0;
+    if (!folder || !Load()) {
+        SetError("Failed to prepare " + virtualPath + " for mounting");
+        return false;
+    }
+    int rc = m_mountFolder(virtualPath.c_str(),
+                           reinterpret_cast<IInspectable*>(folder));
+    WriteDiagnostic("[storage] Mount folder " + virtualPath + " returned " +
+                    std::to_string(rc));
+    if (rc) {
+        SetError("Failed to mount folder " + virtualPath + " (error " +
+                 std::to_string(rc) + ")");
+    }
+    return rc == 0;
 }
 
 void XemuHost::SetError(const std::string& error)
@@ -815,9 +930,59 @@ int XemuHost::OpenBrokeredFile(void* opaque, void* storageFile,
     }
 }
 
-int XemuHost::OpenBrokeredPath(void*, void*, const char*, int, int, int64_t*)
+int XemuHost::OpenBrokeredPath(void* opaque, void* storageFolder,
+                               const char* relativePath, int flags, int,
+                               int64_t* handle)
 {
-    return -ENOSYS;
+    if (!storageFolder || !relativePath || !handle) return -EINVAL;
+    try {
+        auto root = reinterpret_cast<StorageFolder^>(storageFolder);
+        std::vector<Platform::String^> components;
+        if (!SplitBrokeredPath(relativePath, components)) return -EINVAL;
+
+        if (flags & QEMU_HOST_STORAGE_OPEN_DIRECTORY) {
+            auto folder = ResolveFolder(root, components, components.size());
+            auto directory = new BrokeredDirectory();
+            auto items = create_task(folder->GetItemsAsync()).get();
+            directory->entries.reserve(items->Size);
+            for (unsigned int i = 0; i < items->Size; ++i) {
+                auto item = items->GetAt(i);
+                BrokeredDirectoryEntry entry{};
+                entry.name = ToUtf8(item->Name);
+                auto file = dynamic_cast<StorageFile^>(item);
+                if (file) {
+                    auto properties = create_task(file->GetBasicPropertiesAsync()).get();
+                    FillFileStat(properties->Size, &entry.stat);
+                } else {
+                    FillDirectoryStat(&entry.stat);
+                }
+                directory->entries.push_back(std::move(entry));
+            }
+            *handle = reinterpret_cast<int64_t>(directory);
+            auto self = static_cast<XemuHost*>(opaque);
+            if (self) {
+                self->WriteDiagnostic("[storage] Brokered directory opened with " +
+                                      std::to_string(directory->entries.size()) +
+                                      " entries: " + relativePath);
+            }
+            return 0;
+        }
+
+        if (components.empty()) return -EISDIR;
+        auto parent = ResolveFolder(root, components, components.size() - 1);
+        auto file = create_task(parent->GetFileAsync(components.back())).get();
+        bool writable = (flags & _O_RDWR) == _O_RDWR ||
+                        (flags & _O_WRONLY) == _O_WRONLY;
+        auto stream = create_task(file->OpenAsync(
+            writable ? FileAccessMode::ReadWrite : FileAccessMode::Read)).get();
+        auto brokered = new BrokeredFileStream(stream, ToUtf8(file->Name));
+        *handle = reinterpret_cast<int64_t>(brokered);
+        return 0;
+    } catch (Platform::Exception^ exception) {
+        return ExceptionToErrno(exception);
+    } catch (...) {
+        return -EIO;
+    }
 }
 
 int64_t XemuHost::ReadBrokeredFile(void* opaque, int64_t handle, void* buffer,
@@ -830,7 +995,9 @@ int64_t XemuHost::ReadBrokeredFile(void* opaque, int64_t handle, void* buffer,
         auto self = static_cast<XemuHost*>(opaque);
         static std::atomic<uint32_t> readSequence{ 0 };
         uint32_t sequence = readSequence.fetch_add(1);
-        auto brokered = reinterpret_cast<BrokeredFileStream*>(handle);
+        auto base = reinterpret_cast<BrokeredHandle*>(handle);
+        if (base->kind != BrokeredHandle::Kind::File) return -EISDIR;
+        auto brokered = static_cast<BrokeredFileStream*>(base);
         uint64_t position = brokered->stream->Position;
         unsigned int count = static_cast<unsigned int>((std::min)(
             size, static_cast<size_t>((std::numeric_limits<unsigned int>::max)())));
@@ -871,7 +1038,9 @@ int64_t XemuHost::WriteBrokeredFile(void*, int64_t handle,
         return -EINVAL;
     }
     try {
-        auto brokered = reinterpret_cast<BrokeredFileStream*>(handle);
+        auto base = reinterpret_cast<BrokeredHandle*>(handle);
+        if (base->kind != BrokeredHandle::Kind::File) return -EISDIR;
+        auto brokered = static_cast<BrokeredFileStream*>(base);
         if (!brokered->stream->CanWrite) {
             return -EROFS;
         }
@@ -896,7 +1065,9 @@ int64_t XemuHost::SeekBrokeredFile(void*, int64_t handle, int64_t offset,
         return -EINVAL;
     }
     try {
-        auto stream = reinterpret_cast<BrokeredFileStream*>(handle)->stream;
+        auto brokeredHandle = reinterpret_cast<BrokeredHandle*>(handle);
+        if (brokeredHandle->kind != BrokeredHandle::Kind::File) return -EISDIR;
+        auto stream = static_cast<BrokeredFileStream*>(brokeredHandle)->stream;
         int64_t base = whence == SEEK_SET ? 0 :
                        whence == SEEK_CUR ? static_cast<int64_t>(stream->Position) :
                        whence == SEEK_END ? static_cast<int64_t>(stream->Size) : -1;
@@ -916,7 +1087,7 @@ int XemuHost::CloseBrokeredFile(void*, int64_t handle)
     if (!handle) {
         return -EINVAL;
     }
-    delete reinterpret_cast<BrokeredFileStream*>(handle);
+    delete reinterpret_cast<BrokeredHandle*>(handle);
     return 0;
 }
 
@@ -930,12 +1101,40 @@ int XemuHost::StatBrokeredFile(void*, void* storageFile,
     try {
         auto file = reinterpret_cast<StorageFile^>(storageFile);
         auto properties = create_task(file->GetBasicPropertiesAsync()).get();
-        memset(stat, 0, sizeof(*stat));
-        stat->size = properties->Size;
-        stat->allocated_size = properties->Size;
-        stat->mode = 0100666;
-        stat->type = 1;
+        FillFileStat(properties->Size, stat);
         return 0;
+    } catch (Platform::Exception^ exception) {
+        return ExceptionToErrno(exception);
+    } catch (...) {
+        return -EIO;
+    }
+}
+
+int XemuHost::StatBrokeredPath(void*, void* storageFolder,
+                               const char* relativePath,
+                               QemuHostStorageStat* stat)
+{
+    if (!storageFolder || !relativePath || !stat) return -EINVAL;
+    try {
+        auto root = reinterpret_cast<StorageFolder^>(storageFolder);
+        std::vector<Platform::String^> components;
+        if (!SplitBrokeredPath(relativePath, components)) return -EINVAL;
+        if (components.empty()) {
+            FillDirectoryStat(stat);
+            return 0;
+        }
+        auto parent = ResolveFolder(root, components, components.size() - 1);
+        auto item = create_task(parent->GetItemAsync(components.back())).get();
+        auto file = dynamic_cast<StorageFile^>(item);
+        if (!file) {
+            FillDirectoryStat(stat);
+        } else {
+            auto properties = create_task(file->GetBasicPropertiesAsync()).get();
+            FillFileStat(properties->Size, stat);
+        }
+        return 0;
+    } catch (Platform::Exception^ exception) {
+        return ExceptionToErrno(exception);
     } catch (...) {
         return -EIO;
     }
@@ -947,17 +1146,28 @@ int XemuHost::FlushBrokeredFile(void*, int64_t handle)
         return -EINVAL;
     }
     try {
-        auto stream = reinterpret_cast<BrokeredFileStream*>(handle)->stream;
+        auto base = reinterpret_cast<BrokeredHandle*>(handle);
+        if (base->kind != BrokeredHandle::Kind::File) return -EISDIR;
+        auto stream = static_cast<BrokeredFileStream*>(base)->stream;
         return create_task(stream->FlushAsync()).get() ? 0 : -EIO;
     } catch (...) {
         return -EIO;
     }
 }
 
-int XemuHost::ReadBrokeredDirectory(void*, int64_t, char*, size_t,
-                                    QemuHostStorageStat*)
+int XemuHost::ReadBrokeredDirectory(void*, int64_t handle, char* name,
+                                    size_t nameSize, QemuHostStorageStat* stat)
 {
-    return -ENOSYS;
+    if (!handle || !name || !nameSize || !stat) return -EINVAL;
+    auto base = reinterpret_cast<BrokeredHandle*>(handle);
+    if (base->kind != BrokeredHandle::Kind::Directory) return -ENOTDIR;
+    auto directory = static_cast<BrokeredDirectory*>(base);
+    if (directory->position >= directory->entries.size()) return 0;
+    const auto& entry = directory->entries[directory->position++];
+    if (entry.name.size() + 1 > nameSize) return -ENAMETOOLONG;
+    memcpy(name, entry.name.c_str(), entry.name.size() + 1);
+    *stat = entry.stat;
+    return 1;
 }
 
 int XemuHost::TruncateBrokeredFile(void*, int64_t handle, uint64_t size)
@@ -966,7 +1176,9 @@ int XemuHost::TruncateBrokeredFile(void*, int64_t handle, uint64_t size)
         return -EINVAL;
     }
     try {
-        auto stream = reinterpret_cast<BrokeredFileStream*>(handle)->stream;
+        auto base = reinterpret_cast<BrokeredHandle*>(handle);
+        if (base->kind != BrokeredHandle::Kind::File) return -EISDIR;
+        auto stream = static_cast<BrokeredFileStream*>(base)->stream;
         if (!stream->CanWrite) {
             return -EROFS;
         }

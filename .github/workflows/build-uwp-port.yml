@@ -10,6 +10,7 @@ on:
       - 'thirdparty/mesa/**'
       - 'include/qemu/qemu-host.h'
       - 'system/host.c'
+      - 'tools/vlan-relay/**'
       - 'meson.build'
       - 'meson_options.txt'
   pull_request:
@@ -20,6 +21,7 @@ on:
       - 'thirdparty/mesa/**'
       - 'include/qemu/qemu-host.h'
       - 'system/host.c'
+      - 'tools/vlan-relay/**'
       - 'meson.build'
       - 'meson_options.txt'
 
@@ -121,13 +123,20 @@ jobs:
       - name: Build and strip xemu UWP DLL
         shell: msys2 {0}
         run: |
-          ninja -C build-uwp-embed
+          ninja -C build-uwp-embed qemu-system-i386.dll
           test -f build-uwp-embed/qemu-system-i386.dll
           before=$(stat -c '%s' build-uwp-embed/qemu-system-i386.dll)
           strip --strip-unneeded build-uwp-embed/qemu-system-i386.dll
           after=$(stat -c '%s' build-uwp-embed/qemu-system-i386.dll)
           echo "qemu-system-i386.dll: ${before} bytes before strip, ${after} bytes after strip"
           objdump -p build-uwp-embed/qemu-system-i386.dll | grep -q qemu_host_get_api_version
+
+      - name: Test VLan coordinator and relay
+        shell: pwsh
+        run: |
+          Push-Location tools/vlan-relay
+          python -m unittest -v test_server.py
+          Pop-Location
 
       - name: Install Mesa build Python dependencies
         shell: pwsh

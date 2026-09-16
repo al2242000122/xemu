@@ -150,6 +150,7 @@ DirectXPage::DirectXPage():
 			this, &DirectXPage::OnCoreKeyUp);
 
 	m_xemu = std::unique_ptr<XemuHost>(new XemuHost());
+	m_vlan = std::unique_ptr<VLanManager>(new VLanManager());
 	LoadSettings();
 	WireAutomaticSettings();
 	RestorePersistedFiles();
@@ -166,6 +167,7 @@ DirectXPage::DirectXPage():
 
 DirectXPage::~DirectXPage()
 {
+	if (m_vlan) m_vlan->Stop();
 	// Interrompa a renderização e o processamento de eventos em destruição.
 	Windows::UI::Xaml::Media::CompositionTarget::Rendering -= m_renderingToken;
 	SystemNavigationManager::GetForCurrentView()->BackRequested -=
@@ -181,9 +183,14 @@ DirectXPage::~DirectXPage()
 
 void DirectXPage::OnRendering(Object^, Object^)
 {
-	if (toolTabs->SelectedIndex == 5 && ++m_logRefreshFrames >= 60) {
+	if (++m_logRefreshFrames >= 60) {
 		m_logRefreshFrames = 0;
-		RefreshLogView();
+		if (toolTabs->SelectedIndex == 6) RefreshLogView();
+		if (m_vlan && m_vlan->IsRunning()) {
+			std::string status = m_vlan->Status();
+			vlanStatus->Text = ref new String(
+				std::wstring(status.begin(), status.end()).c_str());
+		}
 	}
 	if (m_windowVisible && m_xemu) {
 		if (m_xemu->IsRunning()) {
@@ -380,17 +387,29 @@ void DirectXPage::StartXemu_Click(Object^, RoutedEventArgs^)
 		return;
 	}
 	if (!SaveSettings(false)) {
-		toolTabs->SelectedIndex = 5;
+		toolTabs->SelectedIndex = 6;
+		return;
+	}
+	if (vlanEnabled->IsChecked->Value &&
+	    (!VLanManager::IsValidRoomCode(Utf8(vlanRoomCode->Text)) ||
+	     !m_vlan->Start(Utf8(vlanCoordinator->Text), Utf8(vlanRoomCode->Text)))) {
+		errorText->Text = "VLan/VPN requires a valid coordinator and 32-character room code.";
 		return;
 	}
 	if (m_xemu->Start()) { hostStatus->Text = "RUNNING"; FocusEmulatorInput(); launcherPanel->Visibility = Windows::UI::Xaml::Visibility::Collapsed; HideSystemPointer(); }
-	else { auto e = m_xemu->LastError(); errorText->Text = ref new String(std::wstring(e.begin(), e.end()).c_str()); }
+	else { if (m_vlan) m_vlan->Stop(); auto e = m_xemu->LastError(); errorText->Text = ref new String(std::wstring(e.begin(), e.end()).c_str()); }
 }
 
 void DirectXPage::PauseXemu_Click(Object^, RoutedEventArgs^) { m_xemu->Pause(); hostStatus->Text = "PAUSED"; }
 void DirectXPage::ResumeXemu_Click(Object^, RoutedEventArgs^) { m_xemu->Resume(); hostStatus->Text = "RUNNING"; }
 void DirectXPage::ResetXemu_Click(Object^, RoutedEventArgs^) { m_xemu->Reset(); }
-void DirectXPage::StopXemu_Click(Object^, RoutedEventArgs^) { m_xemu->Shutdown(); }
+void DirectXPage::StopXemu_Click(Object^, RoutedEventArgs^)
+{
+	m_xemu->Shutdown();
+	if (m_vlan) {
+		m_vlan->Stop();
+	}
+}
 
 void DirectXPage::LoadSettings()
 {
@@ -439,8 +458,15 @@ void DirectXPage::LoadSettings()
 	networkEnabled->IsChecked = ReadBool("net.enable", true);
 	networkBackend->SelectedIndex = ClampIndex(ReadInt("net.backend", 0), 2, 0);
 	udpBindAddress->Text = ReadString("net.udp.bind_addr", "0.0.0.0:9368");
-	udpRemoteAddress->Text = ReadString("net.udp.remote_addr", "1.2.3.4:9368");
+	udpServer->SelectedIndex = ClampIndex(ReadInt("net.udp.server", 0), 4, 0);
+	udpRemoteAddress->Text = udpServer->SelectedIndex == 0 ?
+		ReadString("net.udp.remote_addr", "") : "";
+	udpRemoteAddress->IsEnabled = udpServer->SelectedIndex == 0;
 	natForwardPorts->Text = ReadString("net.nat.forward_ports", "");
+	vlanEnabled->IsChecked = ReadBool("net.vlan.enabled", false);
+	vlanRole->SelectedIndex = ClampIndex(ReadInt("net.vlan.role", 0), 2, 0);
+	vlanCoordinator->Text = ReadString("net.vlan.coordinator", "");
+	vlanRoomCode->Text = ReadString("net.vlan.room_code", "");
 	memoryLimit->SelectedIndex = ClampIndex(ReadInt("sys.mem_limit", 0), 2, 0);
 	avPack->SelectedIndex = ClampIndex(ReadInt("sys.avpack", 1), 7, 1);
 }
@@ -449,6 +475,33 @@ void DirectXPage::SaveSettings_Click(Object^, RoutedEventArgs^)
 {
 	if (SaveSettings(true)) {
 		hostStatus->Text = "NETWORK SETTINGS SAVED";
+	}
+}
+
+void DirectXPage::SaveVlanSettings_Click(Object^, RoutedEventArgs^)
+{
+	if (SaveSettings(true)) vlanStatus->Text = "VLan/VPN settings saved";
+}
+
+void DirectXPage::CreateVlanRoom_Click(Object^, RoutedEventArgs^)
+{
+	std::string code = VLanManager::CreateRoomCode();
+	vlanRoomCode->Text = ref new String(
+		std::wstring(code.begin(), code.end()).c_str());
+	vlanRole->SelectedIndex = 0;
+	vlanEnabled->IsChecked = true;
+}
+
+void DirectXPage::UdpServer_SelectionChanged(Object^, SelectionChangedEventArgs^)
+{
+	if (udpRemoteAddress == nullptr) {
+		return;
+	}
+
+	bool manualAddress = udpServer->SelectedIndex <= 0;
+	udpRemoteAddress->IsEnabled = manualAddress;
+	if (!manualAddress) {
+		udpRemoteAddress->Text = "";
 	}
 }
 
@@ -528,14 +581,24 @@ void DirectXPage::WireAutomaticSettings()
 bool DirectXPage::SaveSettings(bool saveNetwork)
 {
 	auto values = SettingsValues();
-	bool networkEnabledValue = saveNetwork ? networkEnabled->IsChecked->Value :
+	bool networkEnabledValue = saveNetwork ?
+		(vlanEnabled->IsChecked->Value || networkEnabled->IsChecked->Value) :
 		ReadBool("net.enable", true);
-	int networkBackendValue = saveNetwork ? networkBackend->SelectedIndex :
+	int networkBackendValue = saveNetwork ?
+		(vlanEnabled->IsChecked->Value ? 3 : networkBackend->SelectedIndex) :
 		ReadInt("net.backend", 0);
 	String^ udpBindAddressValue = saveNetwork ? udpBindAddress->Text :
 		ReadString("net.udp.bind_addr", "0.0.0.0:9368");
-	String^ udpRemoteAddressValue = saveNetwork ? udpRemoteAddress->Text :
-		ReadString("net.udp.remote_addr", "1.2.3.4:9368");
+	int udpServerValue = saveNetwork ? ClampIndex(udpServer->SelectedIndex, 4, 0) :
+		ClampIndex(ReadInt("net.udp.server", 0), 4, 0);
+	static const wchar_t *udpServers[] = {
+		L"", L"us-west-1.lan.xemu.app:9938",
+		L"us-east-1.lan.xemu.app:9938", L"de-1.lan.xemu.app:9938"
+	};
+	String^ udpRemoteAddressValue = udpServerValue == 0 ?
+		(saveNetwork ? udpRemoteAddress->Text :
+		 ReadString("net.udp.remote_addr", "")) :
+		ref new String(udpServers[udpServerValue]);
 	String^ natForwardPortsValue = saveNetwork ? natForwardPorts->Text :
 		ReadString("net.nat.forward_ports", "");
 #define SAVE_BOOL(key, control) values->Insert(key, control->IsChecked->Value)
@@ -593,7 +656,7 @@ bool DirectXPage::SaveSettings(bool saveNetwork)
 	static const char *fitValues[] = { "center", "scale", "stretch" };
 	static const char *aspectValues[] = { "native", "auto", "4x3", "16x9" };
 	static const char *sizeValues[] = { "last_used", "640x480", "720x480", "1280x720", "1280x800", "1280x960", "1920x1080", "2560x1440", "2560x1600", "2560x1920", "3840x2160" };
-	static const char *backendValues[] = { "nat", "udp" };
+	static const char *backendValues[] = { "nat", "udp", "pcap", "vlan" };
 	static const char *avValues[] = { "scart", "hdtv", "vga", "rfu", "svideo", "composite", "none" };
 	static const char *controllerDrivers[] = { "usb-xbox-gamepad", "usb-xbox-gamepad-s" };
 	auto futureFiles = StorageApplicationPermissions::FutureAccessList;
@@ -644,15 +707,20 @@ bool DirectXPage::SaveSettings(bool saveNetwork)
 		values->Insert("net.enable", networkEnabledValue);
 		values->Insert("net.backend", networkBackendValue);
 		values->Insert("net.udp.bind_addr", udpBindAddressValue);
+		values->Insert("net.udp.server", udpServerValue);
 		values->Insert("net.udp.remote_addr", udpRemoteAddressValue);
 		values->Insert("net.nat.forward_ports", natForwardPortsValue);
+		values->Insert("net.vlan.enabled", vlanEnabled->IsChecked->Value);
+		values->Insert("net.vlan.role", vlanRole->SelectedIndex);
+		values->Insert("net.vlan.coordinator", vlanCoordinator->Text);
+		values->Insert("net.vlan.room_code", vlanRoomCode->Text);
 	}
 
 	std::ostringstream config;
 	config << "[general]\n"
 	       << "skip_boot_anim = " << BoolText(skipBootAnimation->IsChecked->Value) << "\n"
 	       << "screenshot_dir = " << (StorageApplicationPermissions::FutureAccessList->ContainsItem("xemu-screenshots") ? "\"/broker/screenshots\"" : "\"\"") << "\n"
-	       << "games_dir = " << (StorageApplicationPermissions::FutureAccessList->ContainsItem("xemu-games") ? "\"/broker/games\"" : "\"\"") << "\n"
+	       << "games_dir = \"/broker/games\"\n"
 	       << "[general.updates]\ncheck = " << BoolText(checkUpdates->IsChecked->Value) << "\n"
 	       << "[general.snapshots]\nfilter_current_game = " << BoolText(filterSnapshots->IsChecked->Value) << "\n"
 	       << "[perf]\nhard_fpu = " << BoolText(hardFpu->IsChecked->Value) << "\ncache_shaders = " << BoolText(cacheShaders->IsChecked->Value) << "\n"
@@ -686,6 +754,8 @@ bool DirectXPage::SaveSettings(bool saveNetwork)
 	       << "[audio.vp]\nnum_workers = " << static_cast<int>(voiceWorkers->Value) << "\n"
 	       << "[net]\nenable = " << BoolText(networkEnabledValue) << "\nbackend = \"" << backendValues[networkBackendValue] << "\"\n"
 	       << "[net.udp]\nbind_addr = " << TomlString(udpBindAddressValue) << "\nremote_addr = " << TomlString(udpRemoteAddressValue) << "\n"
+	       << "[net.vlan]\nhost = " << BoolText(vlanRole->SelectedIndex == 0)
+	       << "\nbind_addr = \"127.0.0.1:9941\"\nremote_addr = \"127.0.0.1:9940\"\n"
 	       << natRules.str()
 	       << "[sys]\nmem_limit = \"" << (memoryLimit->SelectedIndex == 0 ? "64" : "128")
 	       << "\"\navpack = \"" << avValues[avPack->SelectedIndex] << "\"\n";
@@ -747,7 +817,7 @@ void DirectXPage::MountXboxFolder(StorageFolder^ folder, String^ tagValue,
 	std::string tag = tagValue == "screenshots" ? "screenshots" : "games";
 	if (!m_xemu->MountFolder("/broker/" + tag, folder)) {
 		errorText->Text = "Failed to mount the selected folder.";
-		toolTabs->SelectedIndex = 5;
+		toolTabs->SelectedIndex = 6;
 	}
 }
 
@@ -801,7 +871,7 @@ void DirectXPage::MountXboxFile(StorageFile^ file, String^ tagValue,
 				auto error = m_xemu->LastError();
 				errorText->Text = ref new String(
 					std::wstring(error.begin(), error.end()).c_str());
-				toolTabs->SelectedIndex = 5;
+				toolTabs->SelectedIndex = 6;
 				return;
 			}
 			if (tagValue == "flash") m_flashReady = true;
@@ -827,7 +897,33 @@ void DirectXPage::RestorePersistedFiles()
 	RestorePersistedFile("xmu-p4a");
 	RestorePersistedFile("xmu-p4b");
 	RestorePersistedFolder("screenshots");
-	RestorePersistedFolder("games");
+	if (StorageApplicationPermissions::FutureAccessList->ContainsItem(
+		    "xemu-games")) {
+		RestorePersistedFolder("games");
+	} else {
+		MountDefaultGamesFolder();
+	}
+}
+
+void DirectXPage::MountDefaultGamesFolder()
+{
+	create_task(ApplicationData::Current->LocalFolder->CreateFolderAsync(
+		"games", CreationCollisionOption::OpenIfExists))
+		.then([this](StorageFolder^ folder) {
+			/* A user selection may complete while LocalState is being opened.
+			   The Future Access List always wins over the default folder. */
+			if (!StorageApplicationPermissions::FutureAccessList->ContainsItem(
+				    "xemu-games")) {
+				MountXboxFolder(folder, "games", false);
+			}
+		}).then([this](task<void> result) {
+			try {
+				result.get();
+			} catch (Platform::Exception^ exception) {
+				errorText->Text = "Failed to create LocalState\\games: " +
+				                  exception->Message;
+			}
+		});
 }
 
 void DirectXPage::RestorePersistedFile(String^ tagValue)
@@ -860,10 +956,14 @@ void DirectXPage::RestorePersistedFolder(String^ tagValue)
 	create_task(StorageApplicationPermissions::FutureAccessList->GetFolderAsync(token))
 		.then([this, tagValue](StorageFolder^ folder) {
 			MountXboxFolder(folder, tagValue, false);
-		}).then([this](task<void> result) {
+		}).then([this, tagValue, token](task<void> result) {
 			try { result.get(); }
 			catch (Platform::Exception^ exception) {
 				errorText->Text = "Failed to restore saved folder: " + exception->Message;
+				if (tagValue == "games") {
+					StorageApplicationPermissions::FutureAccessList->Remove(token);
+					MountDefaultGamesFolder();
+				}
 			}
 		});
 }

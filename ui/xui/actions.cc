@@ -1,3 +1,6 @@
+#ifdef CONFIG_UWP
+#define QEMU_HOST_INTERNAL
+#endif
 //
 // xemu User Interface
 //
@@ -24,8 +27,21 @@
 #include "../xemu-notifications.h"
 #include "snapshot-manager.hh"
 #include <filesystem>
+#ifdef CONFIG_UWP
+#include "qemu/qemu-host.h"
+#endif
 
-void ActionEjectDisc(void)
+#ifdef CONFIG_UWP
+extern "C" {
+typedef struct AioContext AioContext;
+typedef void QEMUBHFunc(void *opaque);
+AioContext *qemu_get_aio_context(void);
+void aio_bh_schedule_oneshot_full(AioContext *ctx, QEMUBHFunc *cb,
+                                  void *opaque, const char *name);
+}
+#endif
+
+static void ActionEjectDiscNow(void *)
 {
     Error *err = NULL;
     xemu_eject_disc(&err);
@@ -37,6 +53,17 @@ void ActionEjectDisc(void)
 
 void ActionLoadDisc(void)
 {
+#ifdef CONFIG_UWP
+    /* SDL's desktop file dialog returns a Win32 path which the packaged app
+       is not authorized to reopen. Reload the file already granted by the
+       UWP host; additional images are exposed by the brokered Games folder. */
+    if (qemu_host_storage_path_is_brokered("/broker/dvd")) {
+        ActionLoadDiscFile("/broker/dvd");
+    } else {
+        xemu_queue_error_message(
+            "Select a DVD/XISO on the Files page or choose a disc from Games");
+    }
+#else
     static const SDL_DialogFileFilter filters[] = {
         { "Disc Image Files (*.iso, *.xiso)", "iso;xiso" },
         { "All Files", "*" }
@@ -48,10 +75,27 @@ void ActionLoadDisc(void)
     ShowOpenFileDialog(filters, 2, default_path, [](const char *path) {
         ActionLoadDiscFile(path);
     });
+#endif
 }
 
-void ActionLoadDiscFile(const char *file_path)
+void ActionEjectDisc(void)
 {
+#ifdef CONFIG_UWP
+    aio_bh_schedule_oneshot_full(qemu_get_aio_context(), ActionEjectDiscNow,
+                                 nullptr, "uwp-eject-disc");
+#else
+    ActionEjectDiscNow(nullptr);
+#endif
+}
+
+static void ActionLoadDiscFileNow(void *opaque)
+{
+#ifdef CONFIG_UWP
+    g_autofree char *owned_path = static_cast<char *>(opaque);
+    const char *file_path = owned_path;
+#else
+    const char *file_path = static_cast<const char *>(opaque);
+#endif
     Error *err = NULL;
     xemu_load_disc(file_path, &err);
 
@@ -65,6 +109,19 @@ void ActionLoadDiscFile(const char *file_path)
             xemu_settings_set_string(&g_config.general.games_dir, dir.c_str());
         }
     }
+}
+
+void ActionLoadDiscFile(const char *file_path)
+{
+    if (!file_path || !file_path[0]) {
+        return;
+    }
+#ifdef CONFIG_UWP
+    aio_bh_schedule_oneshot_full(qemu_get_aio_context(), ActionLoadDiscFileNow,
+                                 g_strdup(file_path), "uwp-load-disc");
+#else
+    ActionLoadDiscFileNow(const_cast<char *>(file_path));
+#endif
 }
 
 void ActionTogglePause(void)

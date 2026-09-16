@@ -1,3 +1,6 @@
+#ifdef CONFIG_UWP
+#define QEMU_HOST_INTERNAL
+#endif
 //
 // xemu User Interface
 //
@@ -17,6 +20,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 #include "ui/xemu-notifications.h"
+#include <algorithm>
+#include <atomic>
+#include <cctype>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <filesystem>
@@ -32,6 +39,19 @@
 #include "IconsFontAwesome6.h"
 #include "../xemu-snapshots.h"
 #include "main-menu.hh"
+#ifdef CONFIG_UWP
+#include "qemu/qemu-host.h"
+#endif
+
+#ifdef CONFIG_UWP
+extern "C" {
+typedef struct AioContext AioContext;
+typedef void QEMUBHFunc(void *opaque);
+AioContext *qemu_get_aio_context(void);
+void aio_bh_schedule_oneshot_full(AioContext *ctx, QEMUBHFunc *cb,
+                                  void *opaque, const char *name);
+}
+#endif
 
 PopupMenuItemDelegate::~PopupMenuItemDelegate() {}
 void PopupMenuItemDelegate::PushMenu(PopupMenu &menu) {}
@@ -343,12 +363,37 @@ public:
 class GamesPopupMenu : public virtual PopupMenu {
 protected:
     std::multimap<std::string, std::string> sorted_file_names;
+    std::mutex game_list_mutex;
+#ifdef CONFIG_UWP
+    std::atomic<bool> refresh_pending{false};
+
+    static void PopulateGameListOnMainLoop(void *opaque)
+    {
+        auto self = static_cast<GamesPopupMenu *>(opaque);
+        self->PopulateGameList();
+        self->refresh_pending.store(false);
+    }
+
+    void RequestGameListRefresh()
+    {
+        bool expected = false;
+        if (refresh_pending.compare_exchange_strong(expected, true)) {
+            aio_bh_schedule_oneshot_full(qemu_get_aio_context(),
+                                         PopulateGameListOnMainLoop, this,
+                                         "uwp-list-games");
+        }
+    }
+#endif
 
 public:
     void Show(const ImVec2 &direction) override
     {
         PopupMenu::Show(direction);
+#ifdef CONFIG_UWP
+        RequestGameListRefresh();
+#else
         PopulateGameList();
+#endif
     }
 
     bool DrawItems(PopupMenuItemDelegate &nav) override
@@ -359,7 +404,12 @@ public:
             ImGui::SetKeyboardFocusHere();
         }
 
-        for (const auto &[label, file_path] : sorted_file_names) {
+        std::multimap<std::string, std::string> files;
+        {
+            std::lock_guard<std::mutex> lock(game_list_mutex);
+            files = sorted_file_names;
+        }
+        for (const auto &[label, file_path] : files) {
             if (PopupMenuButton(label, ICON_FA_COMPACT_DISC)) {
                 ActionLoadDiscFile(file_path.c_str());
                 nav.ClearMenuStack();
@@ -367,8 +417,14 @@ public:
             }
         }
 
-        if (sorted_file_names.size() == 0) {
-            if (PopupMenuButton("No games found", ICON_FA_SLIDERS)) {
+        if (files.empty()) {
+#ifdef CONFIG_UWP
+            const char *empty_label = refresh_pending.load() ?
+                                      "Loading games..." : "No games found";
+#else
+            const char *empty_label = "No games found";
+#endif
+            if (PopupMenuButton(empty_label, ICON_FA_SLIDERS)) {
                 nav.ClearMenuStack();
                 g_scene_mgr.PushScene(g_main_menu);
             }
@@ -381,7 +437,49 @@ public:
     }
 
     void PopulateGameList() {
-        sorted_file_names.clear();
+        std::multimap<std::string, std::string> refreshed;
+#ifdef CONFIG_UWP
+        const char *games_dir = g_config.general.games_dir;
+        int64_t handle = 0;
+        if (qemu_host_storage_path_is_brokered("/broker/dvd")) {
+            refreshed.insert(
+                { "Selected DVD/XISO", "/broker/dvd" });
+        }
+        if (!games_dir || !games_dir[0] ||
+            qemu_host_storage_open(games_dir,
+                                   QEMU_HOST_STORAGE_OPEN_DIRECTORY,
+                                   0, &handle) < 0) {
+            std::lock_guard<std::mutex> lock(game_list_mutex);
+            sorted_file_names.swap(refreshed);
+            return;
+        }
+        for (;;) {
+            char name[1024];
+            QemuHostStorageStat stat;
+            int result = qemu_host_storage_readdir(handle, name,
+                                                    sizeof(name), &stat);
+            if (result <= 0) {
+                break;
+            }
+            if (stat.type != 1) {
+                continue;
+            }
+            std::string file_name(name);
+            std::string lower = file_name;
+            std::transform(lower.begin(), lower.end(), lower.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            size_t extension = lower.find_last_of('.');
+            if (extension == std::string::npos ||
+                (lower.substr(extension) != ".iso" &&
+                 lower.substr(extension) != ".xiso")) {
+                continue;
+            }
+            std::string label = file_name.substr(0, extension);
+            refreshed.insert({ label,
+                std::string(games_dir) + "/" + file_name });
+        }
+        qemu_host_storage_close(handle);
+#else
         std::filesystem::path directory(g_config.general.games_dir);
         std::error_code ec;
         if (std::filesystem::is_directory(directory, ec)) {
@@ -391,11 +489,14 @@ public:
                 if (std::filesystem::is_regular_file(file_path) &&
                     (file_path.extension() == ".iso" ||
                      file_path.extension() == ".xiso")) {
-                    sorted_file_names.insert(
+                    refreshed.insert(
                         { file_path.stem().string(), file_path.string() });
                 }
             }
         }
+#endif
+        std::lock_guard<std::mutex> lock(game_list_mutex);
+        sorted_file_names.swap(refreshed);
     }
 };
 
@@ -448,10 +549,17 @@ public:
             ActionEjectDisc();
             pop = true;
         }
+#ifdef CONFIG_UWP
+        if (PopupMenuSubmenuButton("Load Disc...", ICON_FA_COMPACT_DISC)) {
+            nav.PushFocus();
+            nav.PushMenu(games);
+        }
+#else
         if (PopupMenuButton("Load Disc...", ICON_FA_COMPACT_DISC)) {
             ActionLoadDisc();
             pop = true;
         }
+#endif
         if (PopupMenuSubmenuButton("Settings", ICON_FA_GEARS)) {
             nav.PushFocus();
             nav.PushMenu(settings);

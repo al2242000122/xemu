@@ -338,7 +338,7 @@ net:
   enable: bool
   backend:
     type: enum
-    values: [nat, udp, pcap]
+    values: [nat, udp, pcap, vlan]
     default: nat
   pcap:
     netif: string
@@ -349,6 +349,14 @@ net:
     remote_addr:
       type: string
       default: 1.2.3.4:9368
+  vlan:
+    host: bool
+    bind_addr:
+      type: string
+      default: 127.0.0.1:9941
+    remote_addr:
+      type: string
+      default: 127.0.0.1:9940
   nat:
     forward_ports:
       type: array

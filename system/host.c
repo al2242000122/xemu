@@ -401,16 +401,6 @@ static int host_mount_brokered(const char *virtual_path, void *object,
         return -ENOSYS;
     }
     host_brokered_ensure_tables();
-    for (i = 0; i < host_brokered_mounts->len; i++) {
-        QemuHostBrokeredMount *existing =
-            g_ptr_array_index(host_brokered_mounts, i);
-
-        if (!strcmp(existing->path, virtual_path)) {
-            g_mutex_unlock(&host_storage_lock);
-            g_mutex_unlock(&host_state_lock);
-            return -EEXIST;
-        }
-    }
     host_brokered_callbacks.retain(host_brokered_opaque, object);
     if (stream) {
         host_brokered_callbacks.retain(host_brokered_opaque, stream);
@@ -420,6 +410,18 @@ static int host_mount_brokered(const char *virtual_path, void *object,
     mount->type = type;
     mount->object = object;
     mount->stream = stream;
+    for (i = 0; i < host_brokered_mounts->len; i++) {
+        QemuHostBrokeredMount *existing =
+            g_ptr_array_index(host_brokered_mounts, i);
+
+        if (!strcmp(existing->path, virtual_path)) {
+            g_ptr_array_index(host_brokered_mounts, i) = mount;
+            host_brokered_mount_free(existing);
+            g_mutex_unlock(&host_storage_lock);
+            g_mutex_unlock(&host_state_lock);
+            return 0;
+        }
+    }
     g_ptr_array_add(host_brokered_mounts, mount);
     g_mutex_unlock(&host_storage_lock);
     g_mutex_unlock(&host_state_lock);

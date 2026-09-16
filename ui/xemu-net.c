@@ -45,6 +45,42 @@
 
 static const char *id = "xemu-netdev";
 static const char *id_hubport = "xemu-netdev-hubport";
+static const char *id_vlan = "xemu-vlan-netdev";
+static const char *id_vlan_hubport = "xemu-vlan-netdev-hubport";
+
+static bool xemu_net_uses_slirp(void)
+{
+    return g_config.net.backend == CONFIG_NET_BACKEND_NAT ||
+           (g_config.net.backend == CONFIG_NET_BACKEND_VLAN &&
+            g_config.net.vlan.host);
+}
+
+static bool add_netdev_from_qdict(QDict *qdict, Error **errp)
+{
+    QemuOpts *opts = qemu_opts_from_qdict(qemu_find_opts("netdev"), qdict,
+                                          errp);
+    qobject_unref(qdict);
+    if (!opts) {
+        return false;
+    }
+    netdev_add(opts, errp);
+    if (*errp) {
+        qemu_opts_del(opts);
+        return false;
+    }
+    return true;
+}
+
+static bool add_hubport(const char *hubport_id, const char *netdev_id,
+                        Error **errp)
+{
+    QDict *qdict = qdict_new();
+    qdict_put_str(qdict, "id", hubport_id);
+    qdict_put_str(qdict, "type", "hubport");
+    qdict_put_int(qdict, "hubid", 0);
+    qdict_put_str(qdict, "netdev", netdev_id);
+    return add_netdev_from_qdict(qdict, errp);
+}
 
 void xemu_net_enable(void)
 {
@@ -57,7 +93,7 @@ void xemu_net_enable(void)
 
     // Create the netdev
     QDict *qdict;
-    if (g_config.net.backend == CONFIG_NET_BACKEND_NAT) {
+    if (xemu_net_uses_slirp()) {
 #ifndef CONFIG_SLIRP
         xemu_queue_error_message("NAT networking is unavailable in this build");
         return;
@@ -85,52 +121,56 @@ void xemu_net_enable(void)
         qdict_put_str(qdict, "id",        id);
         qdict_put_str(qdict, "type",      "pcap");
         qdict_put_str(qdict, "ifname",    g_config.net.pcap.netif);
+    } else if (g_config.net.backend == CONFIG_NET_BACKEND_VLAN) {
+        qdict = qdict_new();
+        qdict_put_str(qdict, "id", id);
+        qdict_put_str(qdict, "type", "socket");
+        qdict_put_str(qdict, "udp", g_config.net.vlan.remote_addr);
+        qdict_put_str(qdict, "localaddr", g_config.net.vlan.bind_addr);
     } else {
         // Unsupported backend type
         return;
     }
 
-    QemuOpts *opts = qemu_opts_from_qdict(qemu_find_opts("netdev"), qdict,
-                                          &local_err);
-    qobject_unref(qdict);
-    if (!opts) {
-        xemu_queue_error_message(error_get_pretty(local_err));
-        error_report_err(local_err);
-        return;
-    }
-    netdev_add(opts, &local_err);
-    if (local_err) {
-        qemu_opts_del(opts);
-        // error_propagate(errp, local_err);
+    if (!add_netdev_from_qdict(qdict, &local_err)) {
         xemu_queue_error_message(error_get_pretty(local_err));
         error_report_err(local_err);
         return;
     }
 
+    if (g_config.net.backend == CONFIG_NET_BACKEND_VLAN &&
+        g_config.net.vlan.host) {
+        qdict = qdict_new();
+        qdict_put_str(qdict, "id", id_vlan);
+        qdict_put_str(qdict, "type", "socket");
+        qdict_put_str(qdict, "udp", g_config.net.vlan.remote_addr);
+        qdict_put_str(qdict, "localaddr", g_config.net.vlan.bind_addr);
+        if (!add_netdev_from_qdict(qdict, &local_err)) {
+            xemu_queue_error_message(error_get_pretty(local_err));
+            error_report_err(local_err);
+            xemu_net_disable();
+            return;
+        }
+    }
+
     // Create the hubport
-    qdict = qdict_new();
-    qdict_put_str(qdict, "id",     id_hubport);
-    qdict_put_str(qdict, "type",   "hubport");
-    qdict_put_int(qdict, "hubid",  0);
-    qdict_put_str(qdict, "netdev", id);
-    opts = qemu_opts_from_qdict(qemu_find_opts("netdev"), qdict, &local_err);
-    qobject_unref(qdict);
-    if (!opts) {
+    if (!add_hubport(id_hubport, id, &local_err)) {
         xemu_queue_error_message(error_get_pretty(local_err));
         error_report_err(local_err);
         xemu_net_disable();
         return;
     }
-    netdev_add(opts, &local_err);
-    if (local_err) {
-        qemu_opts_del(opts);
-        // error_propagate(errp, local_err);
+
+    if (g_config.net.backend == CONFIG_NET_BACKEND_VLAN &&
+        g_config.net.vlan.host &&
+        !add_hubport(id_vlan_hubport, id_vlan, &local_err)) {
         xemu_queue_error_message(error_get_pretty(local_err));
         error_report_err(local_err);
+        xemu_net_disable();
         return;
     }
 
-    if (g_config.net.backend == CONFIG_NET_BACKEND_NAT) {
+    if (xemu_net_uses_slirp()) {
 #ifdef CONFIG_SLIRP
         void *s = slirp_get_state_from_netdev(id);
         if (!s) {
@@ -213,12 +253,14 @@ static void clear_slirp_port_forwards(void)
 
 void xemu_net_disable(void)
 {
-    if (g_config.net.backend == CONFIG_NET_BACKEND_NAT) {
+    if (xemu_net_uses_slirp()) {
         clear_slirp_port_forwards();
     }
 
     remove_netdev(id);
     remove_netdev(id_hubport);
+    remove_netdev(id_vlan);
+    remove_netdev(id_vlan_hubport);
 
     qmp_set_link("nvnet.0", false, NULL);
     g_config.net.enable = false;

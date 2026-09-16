@@ -68,6 +68,9 @@ namespace UWP_Port
         static int StatBrokeredFile(void* opaque, void* storageFile,
                                     void* randomAccessStream,
                                     QemuHostStorageStat* stat);
+        static int StatBrokeredPath(void* opaque, void* storageFolder,
+                                    const char* relativePath,
+                                    QemuHostStorageStat* stat);
         static int FlushBrokeredFile(void* opaque, int64_t handle);
         static int ReadBrokeredDirectory(void* opaque, int64_t handle,
                                          char* name, size_t nameSize,

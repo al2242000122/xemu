@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <wrl.h>
 #include <wrl/client.h>
 #include <dxgi1_4.h>

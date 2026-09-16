@@ -18,7 +18,7 @@ extern "C" {
 #if defined(_WIN32) || defined(__CYGWIN__)
 # ifdef QEMU_HOST_BUILD
 #  define QEMU_HOST_EXPORT __declspec(dllexport)
-# elif defined(QEMU_HOST_INTERNAL)
+# elif defined(QEMU_HOST_INTERNAL) || defined(CONFIG_UWP)
 #  define QEMU_HOST_EXPORT
 # else
 #  define QEMU_HOST_EXPORT __declspec(dllimport)

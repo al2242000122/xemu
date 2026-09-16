@@ -152,6 +152,37 @@ Optional screenshot, games, and Memory Unit locations are configured on the
 Storage page. Emulator settings are saved automatically. Network settings are
 committed with the Save settings button on the Network page.
 
+At first launch, UWP-Port creates `LocalState/games` and uses it as the default
+Games folder. Selecting another Games folder stores that brokered folder in the
+Windows Future Access List and overrides the LocalState default on later runs.
+
+## VLan/VPN rooms
+
+The VLan/VPN page connects Xbox system-link traffic between compatible
+UWP-Port instances. One participant selects **Host** to bridge the virtual LAN
+to xemu's SLiRP Internet gateway. All other participants select **Client**.
+Every participant must enter the same coordinator address and 32-character
+room code before starting xemu.
+
+The transport first uses the coordinator for endpoint discovery and attempts a
+direct peer-to-peer UDP path. If hole punching is not possible, frames are
+automatically sent through the relay. Rooms with more than two participants use
+the relay so Ethernet broadcasts reach every member. The room code is a bearer
+credential: generate a random code, share it privately, and do not reuse it for
+public rooms.
+
+The standalone coordinator is in `tools/vlan-relay`. Run it on a public server
+and allow inbound and outbound UDP on its configured port:
+
+```console
+python tools/vlan-relay/server.py --host 0.0.0.0 --port 9939
+```
+
+The service stores no persistent account or room database. A production
+operator should add firewall rate limits and monitoring. The current `XVL1`
+transport provides private room separation but does not encrypt Ethernet frame
+payloads; do not treat it as a confidentiality VPN on an untrusted relay.
+
 ## Logs
 
 Runtime diagnostics are written to:
@@ -173,8 +204,11 @@ the log.
   binaries.
 - File access outside application storage must use brokered `StorageFile` or
   `StorageFolder` objects.
-- PCAP is unavailable in this UWP build. NAT and UDP tunnel are the supported
-  network backends.
+- PCAP is unavailable in this UWP build. NAT, UDP tunnel, and VLan/VPN are the
+  supported network backends.
+- UWP apps can be suspended by the operating system. VLan/VPN remains connected
+  only while UWP-Port and xemu are active; the standalone coordinator must run
+  on an always-on public host.
 - Rendering must remain attached to the XAML `SwapChainPanel`; desktop window
   ownership and desktop DXGI debug interfaces are not available on Xbox retail
   environments.

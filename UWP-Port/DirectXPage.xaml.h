@@ -8,6 +8,7 @@
 #include "DirectXPage.g.h"
 
 #include "XemuHost.h"
+#include "VLanManager.h"
 
 namespace UWP_Port
 {
@@ -52,6 +53,10 @@ namespace UWP_Port
 		void ResetXemu_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void StopXemu_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void SaveSettings_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void SaveVlanSettings_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void CreateVlanRoom_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void UdpServer_SelectionChanged(Platform::Object^ sender,
+			Windows::UI::Xaml::Controls::SelectionChangedEventArgs^ e);
 		void AutoSaveSettings_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void AutoSaveSettings_SelectionChanged(Platform::Object^ sender, Windows::UI::Xaml::Controls::SelectionChangedEventArgs^ e);
 		void AutoSaveSettings_ValueChanged(Platform::Object^ sender, Windows::UI::Xaml::Controls::Primitives::RangeBaseValueChangedEventArgs^ e);
@@ -67,7 +72,9 @@ namespace UWP_Port
 		void MountXboxFolder(Windows::Storage::StorageFolder^ folder,
 		                     Platform::String^ tagValue, bool persist);
 		void RestorePersistedFolder(Platform::String^ tagValue);
+		void MountDefaultGamesFolder();
 		std::unique_ptr<XemuHost> m_xemu;
+		std::unique_ptr<VLanManager> m_vlan;
 		Windows::Foundation::EventRegistrationToken m_renderingToken;
 		Windows::Foundation::EventRegistrationToken m_backRequestedToken;
 		Windows::Foundation::EventRegistrationToken m_keyDownToken;

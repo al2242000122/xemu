@@ -10,7 +10,7 @@
       <Border Background="{StaticResource Panel}" BorderBrush="#FF334152" BorderThickness="0,0,1,0" Padding="22">
         <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
           <StackPanel><TextBlock Text="XEMU UWP" FontFamily="Consolas" FontSize="13" Foreground="{StaticResource Accent}"/><TextBlock Text="Original Xbox" FontSize="24" FontWeight="SemiBold" Foreground="White" Margin="0,6,0,30"/></StackPanel>
-          <StackPanel Grid.Row="1"><Button Content="Home" Tag="0" Click="NavigationButton_Click"/><Button Content="Files" Tag="1" Click="NavigationButton_Click"/><Button Content="Storage" Tag="2" Click="NavigationButton_Click"/><Button Content="Settings" Tag="3" Click="NavigationButton_Click"/><Button Content="Network" Tag="4" Click="NavigationButton_Click"/><Button Content="Logs" Tag="5" Click="NavigationButton_Click"/></StackPanel>
+          <StackPanel Grid.Row="1"><Button Content="Home" Tag="0" Click="NavigationButton_Click"/><Button Content="Files" Tag="1" Click="NavigationButton_Click"/><Button Content="Storage" Tag="2" Click="NavigationButton_Click"/><Button Content="Settings" Tag="3" Click="NavigationButton_Click"/><Button Content="Network" Tag="4" Click="NavigationButton_Click"/><Button Content="VLan/VPN" Tag="5" Click="NavigationButton_Click"/><Button Content="Logs" Tag="6" Click="NavigationButton_Click"/></StackPanel>
           <StackPanel Grid.Row="2"><TextBlock x:Name="hostStatus" Text="● READY" Foreground="{StaticResource Accent}" FontFamily="Consolas"/><TextBlock Text="OpenGL · Mesa · D3D12" Foreground="#FFAAB8C5" FontSize="12"/></StackPanel>
         </Grid>
       </Border>
@@ -137,10 +137,35 @@
               <TextBlock Text="Backend" Foreground="White"/><ComboBox x:Name="networkBackend"><ComboBoxItem Content="NAT (Internet / Insignia)"/><ComboBoxItem Content="UDP tunnel"/></ComboBox>
               <TextBlock Text="NAT provides DHCP, DNS, TCP and UDP access inside the UWP sandbox. UDP tunnel connects two xemu instances and requires reachable endpoints." Foreground="#FFB7C2D0" TextWrapping="Wrap"/>
               <TextBlock Text="Local UDP address" Foreground="White"/><TextBox x:Name="udpBindAddress" PlaceholderText="0.0.0.0:9368"/>
-              <TextBlock Text="Remote UDP address" Foreground="White"/><TextBox x:Name="udpRemoteAddress" PlaceholderText="1.2.3.4:9368"/>
+              <TextBlock Text="UDP tunnel server" Foreground="White"/>
+              <ComboBox x:Name="udpServer" SelectionChanged="UdpServer_SelectionChanged">
+                <ComboBoxItem Content="Manual address"/>
+                <ComboBoxItem Content="US West — us-west-1.lan.xemu.app:9938"/>
+                <ComboBoxItem Content="US East — us-east-1.lan.xemu.app:9938"/>
+                <ComboBoxItem Content="Germany — de-1.lan.xemu.app:9938"/>
+              </ComboBox>
+              <TextBlock Text="Remote UDP address" Foreground="White"/><TextBox x:Name="udpRemoteAddress" PlaceholderText="Address:port"/>
               <TextBlock Text="NAT forwarding (one rule per line: tcp|udp,host port,Xbox port)" Foreground="White"/><TextBox x:Name="natForwardPorts" AcceptsReturn="True" Height="90" TextWrapping="NoWrap" PlaceholderText="tcp,8080,80" FontFamily="Consolas"/>
               <TextBlock Text="PCAP is not offered because it is unavailable in the UWP build." Foreground="#FFAAB8C5"/>
               <Button Content="Save settings" Background="{StaticResource Accent}" Click="SaveSettings_Click" Margin="0,16,0,30"/>
+            </StackPanel>
+          </ScrollViewer>
+        </PivotItem>
+        <PivotItem>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Padding="38" Spacing="12" MaxWidth="900" HorizontalAlignment="Left">
+              <TextBlock Text="VLan/VPN" FontSize="30" FontWeight="SemiBold" Foreground="White"/>
+              <TextBlock Text="Create or join a private virtual Xbox LAN. The host provides Internet access through SLiRP; direct UDP is preferred and the configured service is used as relay fallback." Foreground="#FFC6D0DA" TextWrapping="Wrap"/>
+              <CheckBox x:Name="vlanEnabled" Content="Enable VLan/VPN when xemu starts" Foreground="White"/>
+              <TextBlock Text="Role" Foreground="White"/>
+              <ComboBox x:Name="vlanRole"><ComboBoxItem Content="Host (SLiRP gateway)"/><ComboBoxItem Content="Client"/></ComboBox>
+              <TextBlock Text="Coordinator/relay UDP address" Foreground="White"/>
+              <TextBox x:Name="vlanCoordinator" PlaceholderText="relay.example.com:9939"/>
+              <TextBlock Text="Room code" Foreground="White"/>
+              <TextBox x:Name="vlanRoomCode" PlaceholderText="32 hexadecimal characters" MaxLength="32"/>
+              <StackPanel Orientation="Horizontal" Spacing="12"><Button Content="Create room code" Click="CreateVlanRoom_Click" Background="{StaticResource Accent}"/><Button Content="Save settings" Click="SaveVlanSettings_Click"/></StackPanel>
+              <TextBlock x:Name="vlanStatus" Text="Disconnected" Foreground="#FFAAB8C5" TextWrapping="Wrap"/>
+              <TextBlock Text="Every participant must use the same coordinator and room code. Keep the room code private. Relay traffic is not encrypted." Foreground="#FFAAB8C5" TextWrapping="Wrap"/>
             </StackPanel>
           </ScrollViewer>
         </PivotItem>
