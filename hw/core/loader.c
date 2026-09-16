@@ -65,6 +65,9 @@
 #include "qemu/cutils.h"
 #include "system/runstate.h"
 #include "tcg/debuginfo.h"
+#ifdef CONFIG_UWP
+#include "qemu/qemu-host.h"
+#endif
 
 #include <zlib.h>
 
@@ -73,6 +76,19 @@ static int roms_loaded;
 /* return the size or -1 if error */
 int64_t get_image_size(const char *filename, Error **errp)
 {
+#ifdef CONFIG_UWP
+    if (qemu_host_storage_path_is_brokered(filename)) {
+        QemuHostStorageStat stat;
+        int ret = qemu_host_storage_stat(filename, &stat);
+
+        if (ret < 0 || stat.size > INT64_MAX) {
+            errno = ret < 0 ? -ret : EFBIG;
+            error_setg_errno(errp, errno, "Could not stat '%s'", filename);
+            return -1;
+        }
+        return stat.size;
+    }
+#endif
     int fd;
     int64_t size;
     fd = qemu_open(filename, O_RDONLY | O_BINARY, errp);
@@ -81,6 +97,7 @@ int64_t get_image_size(const char *filename, Error **errp)
     size = lseek(fd, 0, SEEK_END);
     if (size < 0) {
         error_setg_errno(errp, errno, "lseek failure: %s", filename);
+        close(fd);
         return -1;
     }
     close(fd);
@@ -90,6 +107,39 @@ int64_t get_image_size(const char *filename, Error **errp)
 /* return the size or -1 if error */
 ssize_t load_image_size(const char *filename, void *addr, size_t size)
 {
+#ifdef CONFIG_UWP
+    if (qemu_host_storage_path_is_brokered(filename)) {
+        int64_t handle;
+        size_t loaded = 0;
+        int ret = qemu_host_storage_open(filename, O_RDONLY | O_BINARY, 0,
+                                         &handle);
+
+        if (ret < 0) {
+            errno = -ret;
+            return -1;
+        }
+        while (loaded < size) {
+            int64_t count = qemu_host_storage_read(
+                handle, (uint8_t *)addr + loaded, size - loaded);
+
+            if (count < 0) {
+                errno = -count;
+                qemu_host_storage_close(handle);
+                return -1;
+            }
+            if (!count) {
+                break;
+            }
+            loaded += count;
+        }
+        ret = qemu_host_storage_close(handle);
+        if (ret < 0) {
+            errno = -ret;
+            return -1;
+        }
+        return loaded;
+    }
+#endif
     int fd;
     ssize_t actsize, l = 0;
 

@@ -44,7 +44,11 @@ static void early_context_finalize(void)
 
 static void early_context_init(void)
 {
-    early_context_finalize();
+    /* Keep the caller's presentation context current on first startup. SDL
+     * uses it as the source for SDL_GL_SHARE_WITH_CURRENT_CONTEXT below. */
+    if (g_nv2a_context_render || g_nv2a_context_display) {
+        early_context_finalize();
+    }
     g_nv2a_context_render = glo_context_create();
     if (!g_nv2a_context_render) {
         early_context_init_failed = true;
