@@ -193,17 +193,23 @@ bool XemuHost::AttachRenderPanel(Windows::UI::Xaml::Controls::SwapChainPanel^ pa
     }
 
     WriteDiagnostic("[display] Attaching SwapChainPanel to SDL3 and Mesa");
-    m_sdlModule = LoadPackagedLibrary(L"SDL3.dll", 0);
+    if (!m_sdlModule) {
+        m_sdlModule = LoadPackagedLibrary(L"SDL3.dll", 0);
+    }
     if (!m_sdlModule) {
         WriteDiagnostic("[loader] SDL3.dll failed with Win32 error " +
                         std::to_string(GetLastError()));
     }
-    m_mesaModule = LoadPackagedLibrary(L"gallium_wgl.dll", 0);
+    if (!m_mesaModule) {
+        m_mesaModule = LoadPackagedLibrary(L"gallium_wgl.dll", 0);
+    }
     if (!m_mesaModule) {
         WriteDiagnostic("[loader] gallium_wgl.dll failed with Win32 error " +
                         std::to_string(GetLastError()));
     }
-    m_openGLModule = LoadPackagedLibrary(L"opengl32.dll", 0);
+    if (!m_openGLModule) {
+        m_openGLModule = LoadPackagedLibrary(L"opengl32.dll", 0);
+    }
     if (!m_openGLModule) {
         WriteDiagnostic("[loader] opengl32.dll failed with Win32 error " +
                         std::to_string(GetLastError()));
@@ -752,6 +758,7 @@ void XemuHost::Run(std::vector<std::string> arguments)
     m_running.store(false);
     WriteDiagnostic("[lifecycle] Calling qemu_host_cleanup");
     m_cleanup();
+    ReleaseBrokeredHandles();
     if (rc) {
         SetError("The embedded xemu loop ended with error " +
                  std::to_string(rc));
@@ -771,6 +778,7 @@ void XemuHost::Stop()
     if (m_thread.joinable()) {
         m_thread.join();
     }
+    ReleaseBrokeredHandles();
     if (m_setEmbeddedCursorHidden) {
         m_setEmbeddedCursorHidden(false);
     }
@@ -893,6 +901,35 @@ void XemuHost::ReleaseBrokeredObject(void*, void* object)
     }
 }
 
+void XemuHost::TrackBrokeredHandle(void* handle)
+{
+    std::lock_guard<std::mutex> lock(m_storageMutex);
+    m_openBrokeredHandles.insert(handle);
+}
+
+bool XemuHost::UntrackBrokeredHandle(void* handle)
+{
+    std::lock_guard<std::mutex> lock(m_storageMutex);
+    return m_openBrokeredHandles.erase(handle) != 0;
+}
+
+void XemuHost::ReleaseBrokeredHandles()
+{
+    std::unordered_set<void*> handles;
+    {
+        std::lock_guard<std::mutex> lock(m_storageMutex);
+        handles.swap(m_openBrokeredHandles);
+    }
+    for (void* handle : handles) {
+        delete reinterpret_cast<BrokeredHandle*>(handle);
+    }
+    if (!handles.empty()) {
+        WriteDiagnostic("[storage] Released " +
+                        std::to_string(handles.size()) +
+                        " remaining brokered handles");
+    }
+}
+
 int XemuHost::OpenBrokeredFile(void* opaque, void* storageFile,
                                void* randomAccessStream,
                                int, int64_t* handle)
@@ -916,8 +953,9 @@ int XemuHost::OpenBrokeredFile(void* opaque, void* storageFile,
         name.pop_back();
         auto stream = source->CloneStream();
         stream->Seek(0);
-        auto brokered = new BrokeredFileStream(stream, name);
-        *handle = reinterpret_cast<int64_t>(brokered);
+        auto brokered = std::make_unique<BrokeredFileStream>(stream, name);
+        static_cast<XemuHost*>(opaque)->TrackBrokeredHandle(brokered.get());
+        *handle = reinterpret_cast<int64_t>(brokered.release());
         auto self = static_cast<XemuHost*>(opaque);
         if (self) {
             self->WriteDiagnostic("[storage] Handle opened: " + name +
@@ -942,7 +980,7 @@ int XemuHost::OpenBrokeredPath(void* opaque, void* storageFolder,
 
         if (flags & QEMU_HOST_STORAGE_OPEN_DIRECTORY) {
             auto folder = ResolveFolder(root, components, components.size());
-            auto directory = new BrokeredDirectory();
+            auto directory = std::make_unique<BrokeredDirectory>();
             auto items = create_task(folder->GetItemsAsync()).get();
             directory->entries.reserve(items->Size);
             for (unsigned int i = 0; i < items->Size; ++i) {
@@ -958,11 +996,13 @@ int XemuHost::OpenBrokeredPath(void* opaque, void* storageFolder,
                 }
                 directory->entries.push_back(std::move(entry));
             }
-            *handle = reinterpret_cast<int64_t>(directory);
+            size_t entryCount = directory->entries.size();
+            static_cast<XemuHost*>(opaque)->TrackBrokeredHandle(directory.get());
+            *handle = reinterpret_cast<int64_t>(directory.release());
             auto self = static_cast<XemuHost*>(opaque);
             if (self) {
                 self->WriteDiagnostic("[storage] Brokered directory opened with " +
-                                      std::to_string(directory->entries.size()) +
+                                      std::to_string(entryCount) +
                                       " entries: " + relativePath);
             }
             return 0;
@@ -975,8 +1015,10 @@ int XemuHost::OpenBrokeredPath(void* opaque, void* storageFolder,
                         (flags & _O_WRONLY) == _O_WRONLY;
         auto stream = create_task(file->OpenAsync(
             writable ? FileAccessMode::ReadWrite : FileAccessMode::Read)).get();
-        auto brokered = new BrokeredFileStream(stream, ToUtf8(file->Name));
-        *handle = reinterpret_cast<int64_t>(brokered);
+        auto brokered = std::make_unique<BrokeredFileStream>(
+            stream, ToUtf8(file->Name));
+        static_cast<XemuHost*>(opaque)->TrackBrokeredHandle(brokered.get());
+        *handle = reinterpret_cast<int64_t>(brokered.release());
         return 0;
     } catch (Platform::Exception^ exception) {
         return ExceptionToErrno(exception);
@@ -1082,12 +1124,17 @@ int64_t XemuHost::SeekBrokeredFile(void*, int64_t handle, int64_t offset,
     }
 }
 
-int XemuHost::CloseBrokeredFile(void*, int64_t handle)
+int XemuHost::CloseBrokeredFile(void* opaque, int64_t handle)
 {
     if (!handle) {
         return -EINVAL;
     }
-    delete reinterpret_cast<BrokeredHandle*>(handle);
+    auto self = static_cast<XemuHost*>(opaque);
+    auto brokered = reinterpret_cast<BrokeredHandle*>(handle);
+    if (!self || !self->UntrackBrokeredHandle(brokered)) {
+        return -EBADF;
+    }
+    delete brokered;
     return 0;
 }
 

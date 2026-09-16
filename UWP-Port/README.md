@@ -142,9 +142,13 @@ On the Files page, select:
 - Xbox BIOS/flash ROM
 - MCPX boot ROM
 - Xbox hard disk image
-- DVD/XISO image
+- DVD/XISO image (optional)
 
-The Start xemu button is enabled only after all required files are available.
+The Start xemu button is enabled after BIOS, MCPX, and hard disk are available.
+At startup, UWP-Port creates `LocalState/BIOS`, `LocalState/MCPX`, and
+`LocalState/hard_disk`; when no Future Access List selection exists, the first
+file found in each corresponding folder is selected automatically. Manually
+selected files remain in the Future Access List and override these defaults.
 Files and folders are retained through the UWP Future Access List, so xemu uses
 brokered virtual paths instead of unrestricted desktop filesystem paths.
 
@@ -212,6 +216,18 @@ the log.
 - Rendering must remain attached to the XAML `SwapChainPanel`; desktop window
   ownership and desktop DXGI debug interfaces are not available on Xbox retail
   environments.
+- Video settings that operate on the guest framebuffer or xemu HUD are
+  supported: internal resolution, filtering, display fit, aspect ratio, VSync,
+  notifications, animations, and HUD scale. Desktop window size, exclusive
+  fullscreen, the desktop menu bar, and cursor timeout are intentionally fixed
+  to UWP-safe values because presentation and the system pointer are owned by
+  the `SwapChainPanel` host.
+- UWP package updates are handled by the package distribution channel, and
+  background controller capture cannot bypass UWP suspension. The UWP audio
+  build uses the portable DSP interpreter and one voice worker; DSP JIT and a
+  configurable worker count are therefore not exposed. Controller binding,
+  axis inversion, controller models, Memory Units, real-time DSP, HRTF, volume,
+  Xbox memory size, and AV Pack selection remain configurable.
 
 ## Legal notice
 

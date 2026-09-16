@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 #include <SDL3/SDL_gamepad.h>
 #include <SDL3/SDL_joystick.h>
@@ -44,6 +45,9 @@ namespace UWP_Port
         bool ResolveSDLInput();
         void UpdateUWPGamepad();
         void DetachUWPGamepad();
+        void TrackBrokeredHandle(void* handle);
+        bool UntrackBrokeredHandle(void* handle);
+        void ReleaseBrokeredHandles();
         static void __cdecl Log(void* opaque, QemuHostLogLevel level,
                                 const char* message);
         static void __cdecl SDLLog(void* opaque, int category, int priority,
@@ -88,6 +92,8 @@ namespace UWP_Port
         std::atomic<bool> m_firstFrameLogged;
         mutable std::mutex m_mutex;
         std::mutex m_logMutex;
+		std::mutex m_storageMutex;
+		std::unordered_set<void*> m_openBrokeredHandles;
         std::string m_error;
         std::wstring m_logPath;
 

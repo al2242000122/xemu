@@ -518,17 +518,11 @@ static void shader_cache_entry_init(Lru *lru, LruNode *node, const void *state)
     binding->initialized = false;
     binding->cached = false;
     binding->program = NULL;
-    binding->save_thread = NULL;
 }
 
 static void shader_cache_entry_post_evict(Lru *lru, LruNode *node)
 {
     ShaderBinding *binding = container_of(node, ShaderBinding, node);
-
-    if (binding->save_thread) {
-        qemu_thread_join(binding->save_thread);
-        g_free(binding->save_thread);
-    }
 
     glDeleteProgram(binding->gl_program);
     if (binding->program) {
@@ -536,7 +530,6 @@ static void shader_cache_entry_post_evict(Lru *lru, LruNode *node)
     }
 
     binding->cached = false;
-    binding->save_thread = NULL;
     binding->program = NULL;
     memset(&binding->state, 0, sizeof(ShaderState));
 }
@@ -610,12 +603,20 @@ void pgraph_gl_finalize_shaders(PGRAPHState *pg)
     qemu_mutex_destroy(&r->shader_cache_lock);
 }
 
+typedef struct ShaderWriteTask {
+    uint64_t hash;
+    GLenum program_format;
+    ShaderState state;
+    size_t program_size;
+    void *program;
+} ShaderWriteTask;
+
 static void *shader_write_to_disk(void *arg)
 {
-    ShaderBinding *binding = (ShaderBinding*) arg;
+    ShaderWriteTask *task = arg;
 
-    char *shader_bin = shader_get_bin_directory(binding->node.hash);
-    char *shader_path = shader_get_binary_path(shader_bin, binding->node.hash);
+    char *shader_bin = shader_get_bin_directory(task->hash);
+    char *shader_path = shader_get_binary_path(shader_bin, task->hash);
 
     static uint64_t gl_vendor_len;
     if (gl_vendor_len == 0) {
@@ -659,19 +660,19 @@ static void *shader_write_to_disk(void *arg)
     WRITE_OR_ERR(&gl_version_len, sizeof(gl_version_len));
     WRITE_OR_ERR(shader_gl_version, gl_version_len);
 
-    WRITE_OR_ERR(&binding->program_format, sizeof(binding->program_format));
-    WRITE_OR_ERR(&binding->state, sizeof(binding->state));
+    WRITE_OR_ERR(&task->program_format, sizeof(task->program_format));
+    WRITE_OR_ERR(&task->state, sizeof(task->state));
 
-    WRITE_OR_ERR(&binding->program_size, sizeof(binding->program_size));
-    WRITE_OR_ERR(binding->program, binding->program_size);
+    WRITE_OR_ERR(&task->program_size, sizeof(task->program_size));
+    WRITE_OR_ERR(task->program, task->program_size);
 
     #undef WRITE_OR_ERR
 
     fclose(shader_file);
 
     g_free(shader_path);
-    g_free(binding->program);
-    binding->program = NULL;
+    g_free(task->program);
+    g_free(task);
 
     return NULL;
 
@@ -679,8 +680,8 @@ error:
     fprintf(stderr, "nv2a: Failed to write shader binary file to %s\n", shader_path);
     qemu_unlink(shader_path);
     g_free(shader_path);
-    g_free(binding->program);
-    binding->program = NULL;
+    g_free(task->program);
+    g_free(task);
     return NULL;
 }
 
@@ -703,19 +704,23 @@ void pgraph_gl_shader_cache_to_disk(ShaderBinding *binding)
         return;
     }
 
-    binding->program = g_malloc(program_size);
+    ShaderWriteTask *task = g_new0(ShaderWriteTask, 1);
+    task->program = g_malloc(program_size);
     GLsizei program_size_copied;
     glGetProgramBinary(binding->gl_program, program_size, &program_size_copied,
-                       &binding->program_format, binding->program);
+                       &task->program_format, task->program);
     assert(glGetError() == GL_NO_ERROR);
 
-    binding->program_size = program_size_copied;
+    task->hash = binding->node.hash;
+    task->state = binding->state;
+    task->program_size = program_size_copied;
     binding->cached = true;
 
     char name[24];
     snprintf(name, sizeof(name), "scache-%llx", (unsigned long long) binding->node.hash);
-    binding->save_thread = g_malloc0(sizeof(QemuThread));
-    qemu_thread_create(binding->save_thread, name, shader_write_to_disk, binding, QEMU_THREAD_JOINABLE);
+    QemuThread thread;
+    qemu_thread_create(&thread, name, shader_write_to_disk, task,
+                       QEMU_THREAD_DETACHED);
 }
 
 static void apply_uniform_updates(const UniformInfo *info, int *locs,

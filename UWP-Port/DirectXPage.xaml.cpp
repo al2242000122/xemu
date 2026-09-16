@@ -136,33 +136,59 @@ DirectXPage::DirectXPage():
 
 	// Registre manipuladores de eventos para o ciclo de vida da página.
 	CoreWindow^ window = Window::Current->CoreWindow;
+	WeakReference weakThis(this);
 
-	window->VisibilityChanged +=
-		ref new TypedEventHandler<CoreWindow^, VisibilityChangedEventArgs^>(this, &DirectXPage::OnVisibilityChanged);
+	m_visibilityChangedToken = window->VisibilityChanged +=
+		ref new TypedEventHandler<CoreWindow^, VisibilityChangedEventArgs^>(
+			[weakThis](CoreWindow^ sender, VisibilityChangedEventArgs^ args) {
+				auto page = weakThis.Resolve<DirectXPage>();
+				if (page) page->OnVisibilityChanged(sender, args);
+			});
 	m_backRequestedToken = SystemNavigationManager::GetForCurrentView()->BackRequested +=
 		ref new EventHandler<BackRequestedEventArgs^>(
-			this, &DirectXPage::OnBackRequested);
+			[weakThis](Object^ sender, BackRequestedEventArgs^ args) {
+				auto page = weakThis.Resolve<DirectXPage>();
+				if (page) page->OnBackRequested(sender, args);
+			});
 	m_keyDownToken = window->KeyDown +=
 		ref new TypedEventHandler<CoreWindow^, KeyEventArgs^>(
-			this, &DirectXPage::OnCoreKeyDown);
+			[weakThis](CoreWindow^ sender, KeyEventArgs^ args) {
+				auto page = weakThis.Resolve<DirectXPage>();
+				if (page) page->OnCoreKeyDown(sender, args);
+			});
 	m_keyUpToken = window->KeyUp +=
 		ref new TypedEventHandler<CoreWindow^, KeyEventArgs^>(
-			this, &DirectXPage::OnCoreKeyUp);
+			[weakThis](CoreWindow^ sender, KeyEventArgs^ args) {
+				auto page = weakThis.Resolve<DirectXPage>();
+				if (page) page->OnCoreKeyUp(sender, args);
+			});
 
 	m_xemu = std::unique_ptr<XemuHost>(new XemuHost());
 	m_vlan = std::unique_ptr<VLanManager>(new VLanManager());
 	LoadSettings();
 	WireAutomaticSettings();
 	RestorePersistedFiles();
-	swapChainPanel->Loaded += ref new RoutedEventHandler(
-		this, &DirectXPage::OnRenderPanelLoaded);
-	swapChainPanel->SizeChanged += ref new SizeChangedEventHandler(
-		this, &DirectXPage::OnRenderPanelSizeChanged);
-	swapChainPanel->CompositionScaleChanged +=
+	m_panelLoadedToken = swapChainPanel->Loaded += ref new RoutedEventHandler(
+		[weakThis](Object^ sender, RoutedEventArgs^ args) {
+			auto page = weakThis.Resolve<DirectXPage>();
+			if (page) page->OnRenderPanelLoaded(sender, args);
+		});
+	m_panelSizeChangedToken = swapChainPanel->SizeChanged += ref new SizeChangedEventHandler(
+		[weakThis](Object^ sender, SizeChangedEventArgs^ args) {
+			auto page = weakThis.Resolve<DirectXPage>();
+			if (page) page->OnRenderPanelSizeChanged(sender, args);
+		});
+	m_panelScaleChangedToken = swapChainPanel->CompositionScaleChanged +=
 		ref new TypedEventHandler<SwapChainPanel^, Object^>(
-			this, &DirectXPage::OnRenderPanelScaleChanged);
+			[weakThis](SwapChainPanel^ sender, Object^ args) {
+				auto page = weakThis.Resolve<DirectXPage>();
+				if (page) page->OnRenderPanelScaleChanged(sender, args);
+			});
 	m_renderingToken = Windows::UI::Xaml::Media::CompositionTarget::Rendering +=
-		ref new EventHandler<Object^>(this, &DirectXPage::OnRendering);
+		ref new EventHandler<Object^>([weakThis](Object^ sender, Object^ args) {
+			auto page = weakThis.Resolve<DirectXPage>();
+			if (page) page->OnRendering(sender, args);
+		});
 }
 
 DirectXPage::~DirectXPage()
@@ -173,8 +199,12 @@ DirectXPage::~DirectXPage()
 	SystemNavigationManager::GetForCurrentView()->BackRequested -=
 		m_backRequestedToken;
 	auto window = Window::Current->CoreWindow;
+	window->VisibilityChanged -= m_visibilityChangedToken;
 	window->KeyDown -= m_keyDownToken;
 	window->KeyUp -= m_keyUpToken;
+	swapChainPanel->Loaded -= m_panelLoadedToken;
+	swapChainPanel->SizeChanged -= m_panelSizeChangedToken;
+	swapChainPanel->CompositionScaleChanged -= m_panelScaleChangedToken;
 	m_xemu->Stop();
 	if (m_systemPointerHidden) {
 		Window::Current->CoreWindow->PointerCursor = m_savedSystemPointerCursor;
@@ -188,8 +218,11 @@ void DirectXPage::OnRendering(Object^, Object^)
 		if (toolTabs->SelectedIndex == 6) RefreshLogView();
 		if (m_vlan && m_vlan->IsRunning()) {
 			std::string status = m_vlan->Status();
-			vlanStatus->Text = ref new String(
-				std::wstring(status.begin(), status.end()).c_str());
+			if (status != m_lastVlanStatus) {
+				m_lastVlanStatus = status;
+				vlanStatus->Text = ref new String(
+					std::wstring(status.begin(), status.end()).c_str());
+			}
 		}
 	}
 	if (m_windowVisible && m_xemu) {
@@ -371,11 +404,11 @@ void DirectXPage::HideSystemPointer()
 
 void DirectXPage::UpdateStartButtonState()
 {
-	bool ready = m_flashReady && m_bootromReady && m_hddReady && m_dvdReady;
+	bool ready = m_flashReady && m_bootromReady && m_hddReady;
 	startButton->IsEnabled = ready;
 	requiredFilesStatus->Text = ready ?
-		"Required files are ready. xemu can be started." :
-		"Select BIOS, MCPX, hard disk, and DVD/XISO to start.";
+		"Required files are ready. DVD/XISO is optional." :
+		"Select BIOS, MCPX, and hard disk to start. DVD/XISO is optional.";
 	requiredFilesStatus->Foreground = ref new SolidColorBrush(
 		ready ? Windows::UI::ColorHelper::FromArgb(255, 76, 195, 138) :
 		        Windows::UI::ColorHelper::FromArgb(255, 255, 200, 87));
@@ -413,13 +446,11 @@ void DirectXPage::StopXemu_Click(Object^, RoutedEventArgs^)
 
 void DirectXPage::LoadSettings()
 {
-	checkUpdates->IsChecked = ReadBool("general.updates.check", true);
 	skipBootAnimation->IsChecked = ReadBool("general.skip_boot_anim", false);
 	hardFpu->IsChecked = ReadBool("perf.hard_fpu", true);
 	cacheShaders->IsChecked = ReadBool("perf.cache_shaders", true);
 	filterSnapshots->IsChecked = ReadBool("general.snapshots.filter_current_game", false);
 	autoBind->IsChecked = ReadBool("input.auto_bind", true);
-	backgroundInput->IsChecked = ReadBool("input.background_input_capture", false);
 	invertLeftX->IsChecked = ReadBool("input.uwp_gamepad.invert_axis_left_x", false);
 	invertLeftY->IsChecked = ReadBool("input.uwp_gamepad.invert_axis_left_y", false);
 	invertRightX->IsChecked = ReadBool("input.uwp_gamepad.invert_axis_right_x", false);
@@ -440,21 +471,15 @@ void DirectXPage::LoadSettings()
 	filtering->SelectedIndex = ClampIndex(ReadInt("display.filtering", 0), 2, 0);
 	displayFit->SelectedIndex = ClampIndex(ReadInt("display.ui.fit", 1), 3, 1);
 	aspectRatio->SelectedIndex = ClampIndex(ReadInt("display.ui.aspect_ratio", 1), 4, 1);
-	startupSize->SelectedIndex = ClampIndex(ReadInt("display.window.startup_size", 5), 11, 5);
-	fullscreenStartup->IsChecked = ReadBool("display.window.fullscreen_on_startup", false);
-	fullscreenExclusive->IsChecked = ReadBool("display.window.fullscreen_exclusive", false);
 	vsync->IsChecked = ReadBool("display.window.vsync", true);
-	showMenubar->IsChecked = ReadBool("display.ui.show_menubar", true);
 	showNotifications->IsChecked = ReadBool("display.ui.show_notifications", true);
-	hideCursor->IsChecked = ReadBool("display.ui.hide_cursor", true);
 	useAnimations->IsChecked = ReadBool("display.ui.use_animations", true);
 	autoUiScale->IsChecked = ReadBool("display.ui.auto_scale", true);
 	uiScale->Value = ClampValue(ReadDouble("display.ui.scale", 1.0), 1.0, 3.0, 1.0);
+	uiScale->IsEnabled = !autoUiScale->IsChecked->Value;
 	useDsp->IsChecked = ReadBool("audio.use_dsp", false);
-	useDspJit->IsChecked = ReadBool("audio.use_dsp_jit", false);
 	useHrtf->IsChecked = ReadBool("audio.hrtf", true);
 	volumeLimit->Value = ClampValue(ReadDouble("audio.volume_limit", 1.0), 0.0, 1.0, 1.0);
-	voiceWorkers->Value = ClampIndex(ReadInt("audio.vp.num_workers", 0), 17, 0);
 	networkEnabled->IsChecked = ReadBool("net.enable", true);
 	networkBackend->SelectedIndex = ClampIndex(ReadInt("net.backend", 0), 2, 0);
 	udpBindAddress->Text = ReadString("net.udp.bind_addr", "0.0.0.0:9368");
@@ -505,8 +530,11 @@ void DirectXPage::UdpServer_SelectionChanged(Object^, SelectionChangedEventArgs^
 	}
 }
 
-void DirectXPage::AutoSaveSettings_Click(Object^, RoutedEventArgs^)
+void DirectXPage::AutoSaveSettings_Click(Object^ sender, RoutedEventArgs^)
 {
+	if (sender == autoUiScale) {
+		uiScale->IsEnabled = !autoUiScale->IsChecked->Value;
+	}
 	SaveSettings(false);
 }
 
@@ -524,33 +552,33 @@ void DirectXPage::AutoSaveSettings_ValueChanged(
 
 void DirectXPage::WireAutomaticSettings()
 {
+	WeakReference weakThis(this);
 	auto click = ref new RoutedEventHandler(
-		this, &DirectXPage::AutoSaveSettings_Click);
-	checkUpdates->Click += click;
+		[weakThis](Object^ sender, RoutedEventArgs^ args) {
+			auto page = weakThis.Resolve<DirectXPage>();
+			if (page) page->AutoSaveSettings_Click(sender, args);
+		});
 	skipBootAnimation->Click += click;
 	hardFpu->Click += click;
 	cacheShaders->Click += click;
 	filterSnapshots->Click += click;
 	autoBind->Click += click;
-	backgroundInput->Click += click;
 	invertLeftX->Click += click;
 	invertLeftY->Click += click;
 	invertRightX->Click += click;
 	invertRightY->Click += click;
-	fullscreenStartup->Click += click;
-	fullscreenExclusive->Click += click;
 	vsync->Click += click;
-	showMenubar->Click += click;
 	showNotifications->Click += click;
-	hideCursor->Click += click;
 	useAnimations->Click += click;
 	autoUiScale->Click += click;
 	useDsp->Click += click;
-	useDspJit->Click += click;
 	useHrtf->Click += click;
 
 	auto selectionChanged = ref new SelectionChangedEventHandler(
-		this, &DirectXPage::AutoSaveSettings_SelectionChanged);
+		[weakThis](Object^ sender, SelectionChangedEventArgs^ args) {
+			auto page = weakThis.Resolve<DirectXPage>();
+			if (page) page->AutoSaveSettings_SelectionChanged(sender, args);
+		});
 	port1Driver->SelectionChanged += selectionChanged;
 	port2Driver->SelectionChanged += selectionChanged;
 	port3Driver->SelectionChanged += selectionChanged;
@@ -567,15 +595,16 @@ void DirectXPage::WireAutomaticSettings()
 	filtering->SelectionChanged += selectionChanged;
 	displayFit->SelectionChanged += selectionChanged;
 	aspectRatio->SelectionChanged += selectionChanged;
-	startupSize->SelectionChanged += selectionChanged;
 	memoryLimit->SelectionChanged += selectionChanged;
 	avPack->SelectionChanged += selectionChanged;
 
 	auto valueChanged = ref new RangeBaseValueChangedEventHandler(
-		this, &DirectXPage::AutoSaveSettings_ValueChanged);
+		[weakThis](Object^ sender, RangeBaseValueChangedEventArgs^ args) {
+			auto page = weakThis.Resolve<DirectXPage>();
+			if (page) page->AutoSaveSettings_ValueChanged(sender, args);
+		});
 	uiScale->ValueChanged += valueChanged;
 	volumeLimit->ValueChanged += valueChanged;
-	voiceWorkers->ValueChanged += valueChanged;
 }
 
 bool DirectXPage::SaveSettings(bool saveNetwork)
@@ -604,13 +633,11 @@ bool DirectXPage::SaveSettings(bool saveNetwork)
 #define SAVE_BOOL(key, control) values->Insert(key, control->IsChecked->Value)
 #define SAVE_INT(key, value) values->Insert(key, static_cast<int>(value))
 #define SAVE_DOUBLE(key, value) values->Insert(key, static_cast<double>(value))
-	SAVE_BOOL("general.updates.check", checkUpdates);
 	SAVE_BOOL("general.skip_boot_anim", skipBootAnimation);
 	SAVE_BOOL("perf.hard_fpu", hardFpu);
 	SAVE_BOOL("perf.cache_shaders", cacheShaders);
 	SAVE_BOOL("general.snapshots.filter_current_game", filterSnapshots);
 	SAVE_BOOL("input.auto_bind", autoBind);
-	SAVE_BOOL("input.background_input_capture", backgroundInput);
 	SAVE_BOOL("input.uwp_gamepad.invert_axis_left_x", invertLeftX);
 	SAVE_BOOL("input.uwp_gamepad.invert_axis_left_y", invertLeftY);
 	SAVE_BOOL("input.uwp_gamepad.invert_axis_right_x", invertRightX);
@@ -631,21 +658,14 @@ bool DirectXPage::SaveSettings(bool saveNetwork)
 	SAVE_INT("display.filtering", filtering->SelectedIndex);
 	SAVE_INT("display.ui.fit", displayFit->SelectedIndex);
 	SAVE_INT("display.ui.aspect_ratio", aspectRatio->SelectedIndex);
-	SAVE_INT("display.window.startup_size", startupSize->SelectedIndex);
-	SAVE_BOOL("display.window.fullscreen_on_startup", fullscreenStartup);
-	SAVE_BOOL("display.window.fullscreen_exclusive", fullscreenExclusive);
 	SAVE_BOOL("display.window.vsync", vsync);
-	SAVE_BOOL("display.ui.show_menubar", showMenubar);
 	SAVE_BOOL("display.ui.show_notifications", showNotifications);
-	SAVE_BOOL("display.ui.hide_cursor", hideCursor);
 	SAVE_BOOL("display.ui.use_animations", useAnimations);
 	SAVE_BOOL("display.ui.auto_scale", autoUiScale);
 	SAVE_DOUBLE("display.ui.scale", uiScale->Value);
 	SAVE_BOOL("audio.use_dsp", useDsp);
-	SAVE_BOOL("audio.use_dsp_jit", useDspJit);
 	SAVE_BOOL("audio.hrtf", useHrtf);
 	SAVE_DOUBLE("audio.volume_limit", volumeLimit->Value);
-	SAVE_INT("audio.vp.num_workers", static_cast<int>(voiceWorkers->Value));
 	SAVE_INT("sys.mem_limit", memoryLimit->SelectedIndex);
 	SAVE_INT("sys.avpack", avPack->SelectedIndex);
 #undef SAVE_BOOL
@@ -655,7 +675,6 @@ bool DirectXPage::SaveSettings(bool saveNetwork)
 	static const char *filterValues[] = { "linear", "nearest" };
 	static const char *fitValues[] = { "center", "scale", "stretch" };
 	static const char *aspectValues[] = { "native", "auto", "4x3", "16x9" };
-	static const char *sizeValues[] = { "last_used", "640x480", "720x480", "1280x720", "1280x800", "1280x960", "1920x1080", "2560x1440", "2560x1600", "2560x1920", "3840x2160" };
 	static const char *backendValues[] = { "nat", "udp", "pcap", "vlan" };
 	static const char *avValues[] = { "scart", "hdtv", "vga", "rfu", "svideo", "composite", "none" };
 	static const char *controllerDrivers[] = { "usb-xbox-gamepad", "usb-xbox-gamepad-s" };
@@ -721,10 +740,10 @@ bool DirectXPage::SaveSettings(bool saveNetwork)
 	       << "skip_boot_anim = " << BoolText(skipBootAnimation->IsChecked->Value) << "\n"
 	       << "screenshot_dir = " << (StorageApplicationPermissions::FutureAccessList->ContainsItem("xemu-screenshots") ? "\"/broker/screenshots\"" : "\"\"") << "\n"
 	       << "games_dir = \"/broker/games\"\n"
-	       << "[general.updates]\ncheck = " << BoolText(checkUpdates->IsChecked->Value) << "\n"
+	       << "[general.updates]\ncheck = false\n"
 	       << "[general.snapshots]\nfilter_current_game = " << BoolText(filterSnapshots->IsChecked->Value) << "\n"
 	       << "[perf]\nhard_fpu = " << BoolText(hardFpu->IsChecked->Value) << "\ncache_shaders = " << BoolText(cacheShaders->IsChecked->Value) << "\n"
-	       << "[input]\nauto_bind = " << BoolText(autoBind->IsChecked->Value) << "\nbackground_input_capture = " << BoolText(backgroundInput->IsChecked->Value) << "\n"
+	       << "[input]\nauto_bind = " << BoolText(autoBind->IsChecked->Value) << "\nbackground_input_capture = false\n"
 	       << "[input.bindings]\nport1_driver = \"" << controllerDrivers[port1Driver->SelectedIndex]
 	       << "\"\nport2_driver = \"" << controllerDrivers[port2Driver->SelectedIndex]
 	       << "\"\nport3_driver = \"" << controllerDrivers[port3Driver->SelectedIndex]
@@ -739,19 +758,19 @@ bool DirectXPage::SaveSettings(bool saveNetwork)
 	       << "[input.peripherals.port4]\nperipheral_type_0 = " << port4SlotA->SelectedIndex << "\nperipheral_param_0 = \"/broker/xmu-p4a\"\nperipheral_type_1 = " << port4SlotB->SelectedIndex << "\nperipheral_param_1 = \"/broker/xmu-p4b\"\n"
 	       << "[display]\nrenderer = \"OPENGL\"\nfiltering = \"" << filterValues[filtering->SelectedIndex] << "\"\n"
 	       << "[display.quality]\nsurface_scale = " << surfaceScale->SelectedIndex + 1 << "\n"
-	       << "[display.window]\nfullscreen_on_startup = " << BoolText(fullscreenStartup->IsChecked->Value)
-	       << "\nfullscreen_exclusive = " << BoolText(fullscreenExclusive->IsChecked->Value)
-	       << "\nstartup_size = \"" << sizeValues[startupSize->SelectedIndex] << "\"\nvsync = " << BoolText(vsync->IsChecked->Value) << "\n"
-	       << "[display.ui]\nshow_menubar = " << BoolText(showMenubar->IsChecked->Value)
+	       << "[display.window]\nfullscreen_on_startup = false"
+	       << "\nfullscreen_exclusive = false"
+	       << "\nstartup_size = \"1280x960\"\nvsync = " << BoolText(vsync->IsChecked->Value) << "\n"
+	       << "[display.ui]\nshow_menubar = false"
 	       << "\nshow_notifications = " << BoolText(showNotifications->IsChecked->Value)
-	       << "\nhide_cursor = " << BoolText(hideCursor->IsChecked->Value)
+	       << "\nhide_cursor = true"
 	       << "\nuse_animations = " << BoolText(useAnimations->IsChecked->Value)
 	       << "\nfit = \"" << fitValues[displayFit->SelectedIndex] << "\"\naspect_ratio = \"" << aspectValues[aspectRatio->SelectedIndex]
 	       << "\"\nscale = " << uiScale->Value << "\nauto_scale = " << BoolText(autoUiScale->IsChecked->Value) << "\n"
 	       << "[audio]\nuse_dsp = " << BoolText(useDsp->IsChecked->Value)
-	       << "\nuse_dsp_jit = " << BoolText(useDspJit->IsChecked->Value)
+	       << "\nuse_dsp_jit = false"
 	       << "\nhrtf = " << BoolText(useHrtf->IsChecked->Value) << "\nvolume_limit = " << volumeLimit->Value << "\n"
-	       << "[audio.vp]\nnum_workers = " << static_cast<int>(voiceWorkers->Value) << "\n"
+	       << "[audio.vp]\nnum_workers = 1\n"
 	       << "[net]\nenable = " << BoolText(networkEnabledValue) << "\nbackend = \"" << backendValues[networkBackendValue] << "\"\n"
 	       << "[net.udp]\nbind_addr = " << TomlString(udpBindAddressValue) << "\nremote_addr = " << TomlString(udpRemoteAddressValue) << "\n"
 	       << "[net.vlan]\nhost = " << BoolText(vlanRole->SelectedIndex == 0)
@@ -884,9 +903,15 @@ void DirectXPage::MountXboxFile(StorageFile^ file, String^ tagValue,
 
 void DirectXPage::RestorePersistedFiles()
 {
-	RestorePersistedFile("flash");
-	RestorePersistedFile("bootrom");
-	RestorePersistedFile("hdd");
+	PrepareLocalMachineFolder("BIOS", "flash");
+	PrepareLocalMachineFolder("MCPX", "bootrom");
+	PrepareLocalMachineFolder("hard_disk", "hdd");
+	if (StorageApplicationPermissions::FutureAccessList->ContainsItem(
+		    "xemu-flash")) RestorePersistedFile("flash");
+	if (StorageApplicationPermissions::FutureAccessList->ContainsItem(
+		    "xemu-bootrom")) RestorePersistedFile("bootrom");
+	if (StorageApplicationPermissions::FutureAccessList->ContainsItem(
+		    "xemu-hdd")) RestorePersistedFile("hdd");
 	RestorePersistedFile("eeprom");
 	RestorePersistedFile("xmu-p1a");
 	RestorePersistedFile("xmu-p1b");
@@ -903,6 +928,37 @@ void DirectXPage::RestorePersistedFiles()
 	} else {
 		MountDefaultGamesFolder();
 	}
+}
+
+void DirectXPage::PrepareLocalMachineFolder(String^ folderName,
+	                                         String^ tagValue)
+{
+	create_task(ApplicationData::Current->LocalFolder->CreateFolderAsync(
+		folderName, CreationCollisionOption::OpenIfExists))
+		.then([this, folderName, tagValue](StorageFolder^ folder) {
+			auto token = "xemu-" + tagValue;
+			if (StorageApplicationPermissions::FutureAccessList->ContainsItem(token)) {
+				return task_from_result();
+			}
+			auto status = tagValue == "flash" ? flashFileStatus :
+			              tagValue == "bootrom" ? bootromFileStatus : hddFileStatus;
+			status->Text = folder->Path + "  |  No file found";
+			return create_task(folder->GetFilesAsync()).then(
+				[this, tagValue](Windows::Foundation::Collections::IVectorView<StorageFile^>^ files) {
+					if (files->Size > 0 &&
+					    !StorageApplicationPermissions::FutureAccessList->ContainsItem(
+						    "xemu-" + tagValue)) {
+						MountXboxFile(files->GetAt(0), tagValue, false);
+					}
+				});
+		}).then([this, folderName](task<void> result) {
+			try {
+				result.get();
+			} catch (Platform::Exception^ exception) {
+				errorText->Text = "Failed to prepare LocalState\\" + folderName +
+				                  ": " + exception->Message;
+			}
+		});
 }
 
 void DirectXPage::MountDefaultGamesFolder()
@@ -935,7 +991,7 @@ void DirectXPage::RestorePersistedFile(String^ tagValue)
 	create_task(StorageApplicationPermissions::FutureAccessList->GetFileAsync(token))
 		.then([this, tagValue](StorageFile^ file) {
 			MountXboxFile(file, tagValue, false);
-		}).then([this](task<void> result) {
+		}).then([this, tagValue, token](task<void> result) {
 			try {
 				result.get();
 			}
@@ -943,6 +999,10 @@ void DirectXPage::RestorePersistedFile(String^ tagValue)
 			{
 				errorText->Text = "Failed to restore saved file: " +
 				                  exception->Message;
+				StorageApplicationPermissions::FutureAccessList->Remove(token);
+				if (tagValue == "flash") PrepareLocalMachineFolder("BIOS", tagValue);
+				else if (tagValue == "bootrom") PrepareLocalMachineFolder("MCPX", tagValue);
+				else if (tagValue == "hdd") PrepareLocalMachineFolder("hard_disk", tagValue);
 			}
 		});
 }

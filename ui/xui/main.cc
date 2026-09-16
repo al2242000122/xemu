@@ -148,7 +148,7 @@ void xemu_hud_init(SDL_Window* window, void* sdl_gl_context)
     ImGui_ImplOpenGL3_Init("#version 150");
     ImPlot::CreateContext();
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(CONFIG_UWP)
     if (!g_config.general.show_welcome && g_config.general.updates.check) {
         update_window.CheckForUpdates();
     }

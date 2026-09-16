@@ -27,7 +27,7 @@
                 <StackPanel Spacing="8"><TextBlock Text="UWP integration" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/><TextBlock Text="Brokered files, Xbox controller input through Windows.Gaming.Input, WASAPI audio, and a non-blocking emulation loop." Foreground="White" TextWrapping="Wrap"/><TextBlock Text="Select the required files on the Files tab to enable startup." Foreground="#FFAAB8C5" TextWrapping="Wrap"/></StackPanel>
               </Border>
               <Border Background="{StaticResource Panel}" BorderBrush="#FF334152" BorderThickness="1" CornerRadius="6" Padding="20">
-                <StackPanel Spacing="8"><TextBlock Text="Required files" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/><TextBlock Text="Flash BIOS, MCPX boot ROM, Xbox hard disk, and DVD/XISO media." Foreground="White" TextWrapping="Wrap"/><TextBlock Text="The EEPROM is optional and can be generated automatically by xemu." Foreground="#FFAAB8C5" TextWrapping="Wrap"/></StackPanel>
+                <StackPanel Spacing="8"><TextBlock Text="Required files" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/><TextBlock Text="Flash BIOS, MCPX boot ROM, and Xbox hard disk." Foreground="White" TextWrapping="Wrap"/><TextBlock Text="DVD/XISO and EEPROM are optional. xemu can generate the EEPROM automatically." Foreground="#FFAAB8C5" TextWrapping="Wrap"/></StackPanel>
               </Border>
             </StackPanel>
           </ScrollViewer>
@@ -42,7 +42,7 @@
             <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select hard disk" Tag="hdd" Click="SelectFile_Click"/><TextBlock x:Name="hddFileStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
             <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select EEPROM" Tag="eeprom" Click="SelectFile_Click"/><TextBlock x:Name="eepromFileStatus" Grid.Column="1" Text="Automatic" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
             <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select DVD/XISO" Tag="dvd" Click="SelectFile_Click"/><TextBlock x:Name="dvdFileStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
-            <TextBlock x:Name="requiredFilesStatus" Text="Select BIOS, MCPX, hard disk, and DVD/XISO to start." Foreground="#FFFFC857" TextWrapping="Wrap" Margin="0,14,0,0"/>
+            <TextBlock x:Name="requiredFilesStatus" Text="Select BIOS, MCPX, and hard disk to start. DVD/XISO is optional." Foreground="#FFFFC857" TextWrapping="Wrap" Margin="0,14,0,0"/>
             <Button x:Name="startButton" Content="▶ Start xemu" Background="{StaticResource Accent}" Click="StartXemu_Click" IsEnabled="False" Margin="0,4,0,20"/>
           </StackPanel>
           </ScrollViewer>
@@ -74,15 +74,14 @@
               <TextBlock Text="Changes are saved automatically and applied to the DLL on the next startup." Foreground="#FFC6D0DA"/>
 
               <TextBlock Text="General and performance" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
-              <CheckBox x:Name="checkUpdates" Content="Check for updates" Foreground="White"/>
               <CheckBox x:Name="skipBootAnimation" Content="Skip boot animation" Foreground="White"/>
-              <CheckBox x:Name="hardFpu" Content="Accurate FPU emulation" Foreground="White"/>
+              <CheckBox x:Name="hardFpu" Content="Hardware-accelerated FPU emulation" Foreground="White"/>
               <CheckBox x:Name="cacheShaders" Content="Save shader cache to disk" Foreground="White"/>
               <CheckBox x:Name="filterSnapshots" Content="Show only snapshots for the current game" Foreground="White"/>
+              <TextBlock Text="UWP package updates are managed by the package distribution channel." Foreground="#FFAAB8C5" TextWrapping="Wrap"/>
 
               <TextBlock Text="Input" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
               <CheckBox x:Name="autoBind" Content="Bind controllers automatically" Foreground="White"/>
-              <CheckBox x:Name="backgroundInput" Content="Capture input in the background" Foreground="White"/>
               <CheckBox x:Name="invertLeftX" Content="Invert left stick X axis" Foreground="White"/>
               <CheckBox x:Name="invertLeftY" Content="Invert left stick Y axis" Foreground="White"/>
               <CheckBox x:Name="invertRightX" Content="Invert right stick X axis" Foreground="White"/>
@@ -104,27 +103,23 @@
               <TextBlock Text="Filtering" Foreground="White"/><ComboBox x:Name="filtering"><ComboBoxItem Content="Linear"/><ComboBoxItem Content="Nearest"/></ComboBox>
               <TextBlock Text="Display mode" Foreground="White"/><ComboBox x:Name="displayFit"><ComboBoxItem Content="Center"/><ComboBoxItem Content="Scale while preserving aspect ratio"/><ComboBoxItem Content="Stretch"/></ComboBox>
               <TextBlock Text="Aspect ratio" Foreground="White"/><ComboBox x:Name="aspectRatio"><ComboBoxItem Content="Native"/><ComboBoxItem Content="Automatic"/><ComboBoxItem Content="4:3"/><ComboBoxItem Content="16:9"/></ComboBox>
-              <TextBlock Text="Initial window size" Foreground="White"/><ComboBox x:Name="startupSize"><ComboBoxItem Content="Last used"/><ComboBoxItem Content="640x480"/><ComboBoxItem Content="720x480"/><ComboBoxItem Content="1280x720"/><ComboBoxItem Content="1280x800"/><ComboBoxItem Content="1280x960"/><ComboBoxItem Content="1920x1080"/><ComboBoxItem Content="2560x1440"/><ComboBoxItem Content="2560x1600"/><ComboBoxItem Content="2560x1920"/><ComboBoxItem Content="3840x2160"/></ComboBox>
-              <CheckBox x:Name="fullscreenStartup" Content="Start in fullscreen" Foreground="White"/>
-              <CheckBox x:Name="fullscreenExclusive" Content="Exclusive fullscreen" Foreground="White"/>
               <CheckBox x:Name="vsync" Content="Vertical synchronization" Foreground="White"/>
-              <CheckBox x:Name="showMenubar" Content="Show xemu menu bar" Foreground="White"/>
               <CheckBox x:Name="showNotifications" Content="Show notifications" Foreground="White"/>
-              <CheckBox x:Name="hideCursor" Content="Hide cursor when inactive" Foreground="White"/>
               <CheckBox x:Name="useAnimations" Content="Interface animations" Foreground="White"/>
               <CheckBox x:Name="autoUiScale" Content="Automatic interface scale" Foreground="White"/>
               <TextBlock Text="Manual interface scale" Foreground="White"/><Slider x:Name="uiScale" Minimum="1" Maximum="3" StepFrequency="0.25" TickFrequency="0.25" TickPlacement="BottomRight"/>
+              <TextBlock Text="UWP presentation is managed by the SwapChainPanel. Desktop window size, exclusive fullscreen, xemu menu bar, and cursor timeout do not apply." Foreground="#FFAAB8C5" TextWrapping="Wrap" Margin="0,4,0,0"/>
 
               <TextBlock Text="Audio" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
               <CheckBox x:Name="useDsp" Content="Real-time DSP" Foreground="White"/>
-              <CheckBox x:Name="useDspJit" Content="DSP JIT" Foreground="White"/>
               <CheckBox x:Name="useHrtf" Content="HRTF spatial audio" Foreground="White"/>
               <TextBlock Text="Volume limit" Foreground="White"/><Slider x:Name="volumeLimit" Minimum="0" Maximum="1" StepFrequency="0.05" TickFrequency="0.25" TickPlacement="BottomRight"/>
-              <TextBlock Text="Voice workers (0 = automatic)" Foreground="White"/><Slider x:Name="voiceWorkers" Minimum="0" Maximum="16" StepFrequency="1" TickFrequency="1" TickPlacement="BottomRight"/>
+              <TextBlock Text="UWP uses the portable DSP interpreter and one deterministic voice worker." Foreground="#FFAAB8C5" TextWrapping="Wrap"/>
 
               <TextBlock Text="System" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,12,0,0"/>
               <TextBlock Text="Xbox memory" Foreground="White"/><ComboBox x:Name="memoryLimit"><ComboBoxItem Content="64 MB"/><ComboBoxItem Content="128 MB"/></ComboBox>
               <TextBlock Text="Video cable (AV Pack)" Foreground="White"/><ComboBox x:Name="avPack"><ComboBoxItem Content="SCART"/><ComboBoxItem Content="HDTV"/><ComboBoxItem Content="VGA"/><ComboBoxItem Content="RFU"/><ComboBoxItem Content="S-Video"/><ComboBoxItem Content="Composite"/><ComboBoxItem Content="None"/></ComboBox>
+              <TextBlock Text="Selecting AV Pack 'None' intentionally disables Xbox video output." Foreground="#FFFFC857" TextWrapping="Wrap"/>
             </StackPanel>
           </ScrollViewer>
         </PivotItem>

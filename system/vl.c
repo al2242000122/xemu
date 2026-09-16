@@ -665,7 +665,9 @@ static int drive_init_func(void *opaque, QemuOpts *opts, Error **errp)
 {
     BlockInterfaceType *block_default_type = opaque;
     const char *file_path = qemu_opt_get(opts, "file");
-    bool is_cdrom_with_file = !strcmp(qemu_opt_get(opts, "media"), "cdrom") && strlen(file_path) > 0;
+    const char *media = qemu_opt_get(opts, "media");
+    bool is_cdrom_with_file = media && !strcmp(media, "cdrom") &&
+                              file_path && file_path[0];
 
     Error *error_warn = NULL;
     bool failed = drive_new(opts, *block_default_type, is_cdrom_with_file ? &error_warn : errp) == NULL;
@@ -677,7 +679,12 @@ static int drive_init_func(void *opaque, QemuOpts *opts, Error **errp)
         char *msg = g_strdup_printf("Failed to open DVD image file '%s'. Please check machine settings.", file_path);
         xemu_queue_error_message(msg);
         g_free(msg);
-        qemu_opt_set(opts, "file", "", errp);
+        /* Keep the ATAPI drive present but eject the failed medium. An empty
+         * file= option still asks the block layer to create a file backend and
+         * is rejected before the guest can boot. */
+        qemu_opt_unset(opts, "file");
+        qemu_opt_unset(opts, "format");
+        qemu_opt_unset(opts, "readonly");
         failed = drive_new(opts, *block_default_type, errp) == NULL;
     }
 
@@ -3100,14 +3107,19 @@ void qemu_init(int argc, char **argv)
         }
     }
 
-    // Always populate DVD drive. If disc path is the empty string, drive is
-    // connected but no media present.
+    // Always populate the DVD drive. Without a path, omit file/format options
+    // entirely so QEMU creates an empty ATAPI drive instead of an invalid
+    // zero-length file backend. The HUD can insert media into this drive later.
     fake_argv[fake_argc++] = strdup("-drive");
-    char *escaped_dvd_path = strdup_double_commas(dvd_path);
-    fake_argv[fake_argc++] = g_strdup_printf(
-        "index=1,media=cdrom,format=raw,readonly=on,file=%s",
-        escaped_dvd_path);
-    free(escaped_dvd_path);
+    if (dvd_path[0]) {
+        char *escaped_dvd_path = strdup_double_commas(dvd_path);
+        fake_argv[fake_argc++] = g_strdup_printf(
+            "index=1,media=cdrom,format=raw,readonly=on,file=%s",
+            escaped_dvd_path);
+        free(escaped_dvd_path);
+    } else {
+        fake_argv[fake_argc++] = strdup("index=1,media=cdrom");
+    }
 
     fake_argv[fake_argc++] = strdup("-display");
     fake_argv[fake_argc++] = strdup("xemu");

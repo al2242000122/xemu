@@ -116,8 +116,6 @@ typedef struct ShaderBinding {
     size_t program_size;
     GLenum program_format;
     ShaderState state;
-    QemuThread *save_thread;
-
     GLuint gl_program;
     GLenum gl_primitive_mode;
 

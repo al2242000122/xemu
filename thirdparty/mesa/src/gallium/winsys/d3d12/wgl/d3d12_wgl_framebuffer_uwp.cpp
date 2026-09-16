@@ -57,7 +57,6 @@ struct d3d12_wgl_framebuffer {
    enum pipe_format pformat;
    HWND window;
    ComPtr<IDXGISwapChain3> swapchain;
-   ID3D12Resource *images[num_buffers];
    pipe_resource *buffers[num_buffers];
 };
 
@@ -75,10 +74,6 @@ d3d12_wgl_framebuffer_release_buffers(struct d3d12_wgl_framebuffer *framebuffer)
          d3d12_resource_release(d3d12_resource(framebuffer->buffers[i]));
          pipe_resource_reference(&framebuffer->buffers[i], NULL);
       }
-      if (framebuffer->images[i]) {
-         framebuffer->images[i]->Release();
-         framebuffer->images[i] = NULL;
-      }
    }
 }
 
@@ -91,8 +86,6 @@ d3d12_wgl_framebuffer_wrap_buffers(struct d3d12_wgl_framebuffer *framebuffer)
       ID3D12Resource *res = NULL;
       if (FAILED(framebuffer->swapchain->GetBuffer(i, IID_PPV_ARGS(&res))) || !res)
          return false;
-
-      framebuffer->images[i] = res;
 
       struct winsys_handle handle;
       memset(&handle, 0, sizeof(handle));
@@ -116,11 +109,15 @@ d3d12_wgl_framebuffer_wrap_buffers(struct d3d12_wgl_framebuffer *framebuffer)
       templ.usage = PIPE_USAGE_DEFAULT;
       templ.flags = 0;
 
-      pipe_resource_reference(&framebuffer->buffers[i],
-         pscreen->resource_from_handle(pscreen, &templ, &handle,
-            PIPE_HANDLE_USAGE_FRAMEBUFFER_WRITE));
-      if (!framebuffer->buffers[i])
+      /* resource_from_handle returns the initial pipe reference and consumes
+       * the COM reference supplied in handle.com_obj.  Taking another pipe
+       * reference here leaked one complete swapchain resource on every
+       * resize. */
+      pipe_resource *buffer = pscreen->resource_from_handle(
+         pscreen, &templ, &handle, PIPE_HANDLE_USAGE_FRAMEBUFFER_WRITE);
+      if (!buffer)
          return false;
+      framebuffer->buffers[i] = buffer;
    }
 
    return true;
@@ -140,6 +137,7 @@ d3d12_wgl_framebuffer_destroy(struct stw_winsys_framebuffer *fb,
          ctx->screen->fence_finish(ctx->screen, ctx, fence, OS_TIMEOUT_INFINITE);
          ctx->screen->fence_reference(ctx->screen, &fence, NULL);
       }
+      d3d12_screen_reclaim_completed(framebuffer->screen);
    }
 
    d3d12_wgl_framebuffer_release_buffers(framebuffer);
@@ -206,6 +204,11 @@ d3d12_wgl_framebuffer_resize(stw_winsys_framebuffer *fb,
          ctx->screen->fence_finish(ctx->screen, ctx, fence, OS_TIMEOUT_INFINITE);
          ctx->screen->fence_reference(ctx->screen, &fence, NULL);
       }
+
+      /* fence_finish only waits for the GPU.  Reclaim the completed batches
+       * as well so they release their references to the old backbuffers
+       * before ResizeBuffers. */
+      d3d12_screen_reclaim_completed(framebuffer->screen);
 
       d3d12_wgl_framebuffer_release_buffers(framebuffer);
 
@@ -287,16 +290,13 @@ d3d12_wgl_create_framebuffer(struct pipe_screen *screen,
       return NULL;
    }
 
-   struct d3d12_wgl_framebuffer *fb = CALLOC_STRUCT(d3d12_wgl_framebuffer);
+   struct d3d12_wgl_framebuffer *fb =
+      new (std::nothrow) struct d3d12_wgl_framebuffer();
    if (!fb)
       return NULL;
 
-   new (fb) struct d3d12_wgl_framebuffer();
-
    fb->window = hWnd;
    fb->screen = d3d12_screen(screen);
-   fb->images[0] = NULL;
-   fb->images[1] = NULL;
    fb->base.destroy = d3d12_wgl_framebuffer_destroy;
    fb->base.resize = d3d12_wgl_framebuffer_resize;
    fb->base.present = d3d12_wgl_framebuffer_present;

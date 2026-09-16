@@ -73,12 +73,18 @@ namespace UWP_Port
 		                     Platform::String^ tagValue, bool persist);
 		void RestorePersistedFolder(Platform::String^ tagValue);
 		void MountDefaultGamesFolder();
+		void PrepareLocalMachineFolder(Platform::String^ folderName,
+		                               Platform::String^ tagValue);
 		std::unique_ptr<XemuHost> m_xemu;
 		std::unique_ptr<VLanManager> m_vlan;
 		Windows::Foundation::EventRegistrationToken m_renderingToken;
+		Windows::Foundation::EventRegistrationToken m_visibilityChangedToken;
 		Windows::Foundation::EventRegistrationToken m_backRequestedToken;
 		Windows::Foundation::EventRegistrationToken m_keyDownToken;
 		Windows::Foundation::EventRegistrationToken m_keyUpToken;
+		Windows::Foundation::EventRegistrationToken m_panelLoadedToken;
+		Windows::Foundation::EventRegistrationToken m_panelSizeChangedToken;
+		Windows::Foundation::EventRegistrationToken m_panelScaleChangedToken;
 		bool m_windowVisible;
 		bool m_renderAttached;
 		bool m_flashReady;
@@ -88,6 +94,7 @@ namespace UWP_Port
 		Windows::UI::Core::CoreCursor^ m_savedSystemPointerCursor;
 		bool m_systemPointerHidden;
 		unsigned int m_logRefreshFrames;
+		std::string m_lastVlanStatus;
 	};
 }
 
