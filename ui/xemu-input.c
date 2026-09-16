@@ -463,6 +463,24 @@ void xemu_input_init(void)
     QTAILQ_INSERT_TAIL(&available_controllers, new_con, entry);
 }
 
+void xemu_input_cleanup(void)
+{
+    ControllerState *iter, *next;
+
+    memset(bound_controllers, 0, sizeof(bound_controllers));
+    QTAILQ_FOREACH_SAFE(iter, &available_controllers, entry, next) {
+        QTAILQ_REMOVE(&available_controllers, iter, entry);
+        if (iter->sdl_gamepad) {
+            SDL_CloseGamepad(iter->sdl_gamepad);
+        }
+        for (int i = 0; i < 2; i++) {
+            g_free(iter->peripherals[i]);
+        }
+        free(iter);
+    }
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+}
+
 int xemu_input_get_controller_default_bind_port(ControllerState *state, int start)
 {
     char guid[35] = { 0 };

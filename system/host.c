@@ -59,6 +59,8 @@ static uint64_t host_next_brokered_handle = UINT64_C(0x4000000000000000);
 bool xemu_prepare_embedded_display(void);
 void xemu_start_embedded_display(void);
 void xemu_render_embedded_frame(void);
+void xemu_stop_embedded_display(void);
+void xemu_shutdown_embedded_display(void);
 
 static bool host_brokered_mount_exists(const char *path)
 {
@@ -1132,11 +1134,13 @@ int qemu_host_cleanup(void)
     status = host_exit_status;
     host_cleaned = true;
     g_mutex_unlock(&host_state_lock);
+    xemu_stop_embedded_display();
     replay_mutex_lock();
     bql_lock();
     qemu_cleanup(status);
     bql_unlock();
     replay_mutex_unlock();
+    xemu_shutdown_embedded_display();
     g_mutex_lock(&host_storage_lock);
     brokered = host_brokered_callbacks;
     brokered_opaque = host_brokered_opaque;

@@ -290,6 +290,17 @@ void nv2a_context_init(void)
     }
 }
 
+void nv2a_context_cleanup(void)
+{
+    for (int i = 0; i < ARRAY_SIZE(renderers); i++) {
+        const PGRAPHRenderer *r = renderers[i];
+
+        if (r && r->ops.early_context_finalize) {
+            r->ops.early_context_finalize();
+        }
+    }
+}
+
 static bool attempt_renderer_init(PGRAPHState *pg)
 {
     NV2AState *d = container_of(pg, NV2AState, pgraph);

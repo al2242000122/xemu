@@ -110,6 +110,7 @@ typedef struct PGRAPHRenderer {
     const char *name;
     struct {
         void (*early_context_init)(void);
+        void (*early_context_finalize)(void);
         void (*init)(NV2AState *d, Error **errp);
         void (*finalize)(NV2AState *d);
         void (*clear_report_value)(NV2AState *d);

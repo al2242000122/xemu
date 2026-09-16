@@ -33,6 +33,17 @@ static void early_context_init(void)
 #endif
 }
 
+static void early_context_finalize(void)
+{
+#if HAVE_EXTERNAL_MEMORY
+    glo_set_current(NULL);
+    if (g_gl_context) {
+        glo_context_destroy(g_gl_context);
+        g_gl_context = NULL;
+    }
+#endif
+}
+
 static void pgraph_vk_init(NV2AState *d, Error **errp)
 {
     PGRAPHState *pg = &d->pgraph;
@@ -210,6 +221,7 @@ static PGRAPHRenderer pgraph_vk_renderer = {
     .ops = {
         .init = pgraph_vk_init,
         .early_context_init = early_context_init,
+        .early_context_finalize = early_context_finalize,
         .finalize = pgraph_vk_finalize,
         .clear_report_value = pgraph_vk_clear_report_value,
         .clear_surface = pgraph_vk_clear_surface,

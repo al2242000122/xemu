@@ -28,8 +28,23 @@ GloContext *g_nv2a_context_render;
 GloContext *g_nv2a_context_display;
 static bool early_context_init_failed;
 
+static void early_context_finalize(void)
+{
+    glo_set_current(NULL);
+    if (g_nv2a_context_display) {
+        glo_context_destroy(g_nv2a_context_display);
+        g_nv2a_context_display = NULL;
+    }
+    if (g_nv2a_context_render) {
+        glo_context_destroy(g_nv2a_context_render);
+        g_nv2a_context_render = NULL;
+    }
+    early_context_init_failed = false;
+}
+
 static void early_context_init(void)
 {
+    early_context_finalize();
     g_nv2a_context_render = glo_context_create();
     if (!g_nv2a_context_render) {
         early_context_init_failed = true;
@@ -37,6 +52,8 @@ static void early_context_init(void)
     }
     g_nv2a_context_display = glo_context_create();
     if (!g_nv2a_context_display) {
+        early_context_init_failed = true;
+        early_context_finalize();
         early_context_init_failed = true;
         return;
     }
@@ -48,11 +65,15 @@ static void early_context_init(void)
     GloContext *context = glo_context_create();
     if (!context) {
         early_context_init_failed = true;
+        early_context_finalize();
+        early_context_init_failed = true;
         return;
     }
     if (!pgraph_gl_determine_gpu_properties()) {
         early_context_init_failed = true;
         glo_context_destroy(context);
+        early_context_finalize();
+        early_context_init_failed = true;
         return;
     }
     glo_context_destroy(context);
@@ -210,6 +231,7 @@ static PGRAPHRenderer pgraph_gl_renderer = {
     .ops = {
         .init = pgraph_gl_init,
         .early_context_init = early_context_init,
+        .early_context_finalize = early_context_finalize,
         .finalize = pgraph_gl_finalize,
         .clear_report_value = pgraph_gl_clear_report_value,
         .clear_surface = pgraph_gl_clear_surface,

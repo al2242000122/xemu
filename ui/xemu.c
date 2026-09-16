@@ -1049,6 +1049,8 @@ static void poll_events(struct xemu_console *scon)
 bool xemu_prepare_embedded_display(void);
 void xemu_start_embedded_display(void);
 void xemu_render_embedded_frame(void);
+void xemu_stop_embedded_display(void);
+void xemu_shutdown_embedded_display(void);
 
 static void display_very_early_init(DisplayOptions *o)
 {
@@ -1158,6 +1160,7 @@ static void display_very_early_init(DisplayOptions *o)
                            "SDL_CreateWindow failed without an SDL error");
 #endif
         SDL_Quit();
+        g_free(title);
 #ifdef CONFIG_UWP
         g_free(sdl_error);
         return;
@@ -1222,9 +1225,9 @@ static void display_very_early_init(DisplayOptions *o)
         SDL_Surface *icon = SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_RGBA32, icon_data, width*4);
         if (icon) {
             SDL_SetWindowIcon(m_window, icon);
+            SDL_DestroySurface(icon);
         }
-        // Note: Retaining the memory allocated by stbi_load. It's used in place
-        // by the SDL surface.
+        stbi_image_free(icon_data);
     }
 
     fprintf(stderr, "CPU: %s\n", xemu_get_cpu_info());
@@ -1250,6 +1253,7 @@ static void display_very_early_init(DisplayOptions *o)
 
 bool xemu_prepare_embedded_display(void)
 {
+    qatomic_set(&qemu_exiting, false);
     if (!m_window || !m_context) {
         display_very_early_init(NULL);
     }
@@ -1315,6 +1319,11 @@ void xemu_render_embedded_frame(void)
                            "xemu display: first GL frame complete");
         first_frame = false;
     }
+}
+
+void xemu_stop_embedded_display(void)
+{
+    qatomic_set(&qemu_exiting, true);
 }
 
 static void display_early_init(DisplayOptions *o)
@@ -1446,16 +1455,44 @@ static void display_finalize(void)
 {
     if (use_vblank_timer_thread) {
         qemu_thread_join(&vblank_thread);
+    } else if (vblank_timer) {
+        timer_del(vblank_timer);
+        timer_free(vblank_timer);
+        vblank_timer = NULL;
     }
 
     SDL_RemoveEventWatch(event_watch_callback, &scon_list[0]);
+    qemu_remove_mouse_mode_change_notifier(&mouse_mode_notifier);
 #ifdef _WIN32
     win32_dxgi_present_cleanup();
 #endif
+    xemu_input_cleanup();
+    xemu_hud_cleanup();
+    nv2a_context_cleanup();
+    if (guest_sprite) {
+        SDL_DestroyCursor(guest_sprite);
+        guest_sprite = NULL;
+    }
+    if (guest_sprite_surface) {
+        SDL_DestroySurface(guest_sprite_surface);
+        guest_sprite_surface = NULL;
+    }
+    if (sdl_cursor_hidden) {
+        SDL_DestroyCursor(sdl_cursor_hidden);
+        sdl_cursor_hidden = NULL;
+    }
+    sdl_cursor_normal = NULL;
     SDL_GL_MakeCurrent(NULL, NULL);
     SDL_GL_DestroyContext(m_context);
+    m_context = NULL;
     SDL_DestroyWindow(m_window);
+    m_window = NULL;
     SDL_Quit();
+}
+
+void xemu_shutdown_embedded_display(void)
+{
+    display_finalize();
 }
 
 static QemuDisplay qemu_display_xemu = {
