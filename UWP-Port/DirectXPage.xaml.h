@@ -9,6 +9,7 @@
 
 #include "XemuHost.h"
 #include "VLanManager.h"
+#include <chrono>
 
 namespace UWP_Port
 {
@@ -41,6 +42,7 @@ namespace UWP_Port
 		void OnRenderPanelScaleChanged(Windows::UI::Xaml::Controls::SwapChainPanel^ sender, Platform::Object^ args);
 		void FocusEmulatorInput();
 		void HideSystemPointer();
+		void UpdateFpsOverlay(bool framePresented);
 		void UpdateStartButtonState();
 		void RefreshLogView();
 
@@ -91,10 +93,14 @@ namespace UWP_Port
 		bool m_bootromReady;
 		bool m_hddReady;
 		bool m_dvdReady;
+		bool m_flashMountPending;
+		bool m_bootromMountPending;
+		bool m_hddMountPending;
 		Windows::UI::Core::CoreCursor^ m_savedSystemPointerCursor;
 		bool m_systemPointerHidden;
 		unsigned int m_logRefreshFrames;
+		unsigned int m_fpsFrames;
+		std::chrono::steady_clock::time_point m_fpsSampleStart;
 		std::string m_lastVlanStatus;
 	};
 }
-

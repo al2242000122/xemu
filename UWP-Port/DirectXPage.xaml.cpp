@@ -128,9 +128,14 @@ DirectXPage::DirectXPage():
 	m_bootromReady(false),
 	m_hddReady(false),
 	m_dvdReady(false),
+	m_flashMountPending(false),
+	m_bootromMountPending(false),
+	m_hddMountPending(false),
 	m_savedSystemPointerCursor(nullptr),
 	m_systemPointerHidden(false),
-	m_logRefreshFrames(0)
+	m_logRefreshFrames(0),
+	m_fpsFrames(0),
+	m_fpsSampleStart(std::chrono::steady_clock::now())
 {
 	InitializeComponent();
 
@@ -229,7 +234,32 @@ void DirectXPage::OnRendering(Object^, Object^)
 		if (m_xemu->IsRunning()) {
 			HideSystemPointer();
 		}
-		m_xemu->RenderFrame();
+		UpdateFpsOverlay(m_xemu->RenderFrame());
+	}
+}
+
+void DirectXPage::UpdateFpsOverlay(bool framePresented)
+{
+	if (!m_xemu->IsRunning()) {
+		fpsOverlay->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+		m_fpsFrames = 0;
+		m_fpsSampleStart = std::chrono::steady_clock::now();
+		return;
+	}
+
+	fpsOverlay->Visibility = Windows::UI::Xaml::Visibility::Visible;
+	if (framePresented) {
+		++m_fpsFrames;
+	}
+	auto now = std::chrono::steady_clock::now();
+	auto elapsed = std::chrono::duration<double>(now - m_fpsSampleStart).count();
+	if (elapsed >= 1.0) {
+		wchar_t text[32];
+		double fps = m_fpsFrames / elapsed;
+		swprintf_s(text, L"%.1f FPS", fps);
+		fpsCounter->Text = ref new String(text);
+		m_fpsFrames = 0;
+		m_fpsSampleStart = now;
 	}
 }
 
@@ -313,7 +343,14 @@ void DirectXPage::AppBarButton_Click(Object^ sender, RoutedEventArgs^ e)
 void DirectXPage::NavigationButton_Click(Object^ sender, RoutedEventArgs^)
 {
 	toolTabs->SelectedIndex = _wtoi(safe_cast<Button^>(sender)->Tag->ToString()->Data());
-	if (toolTabs->SelectedIndex == 5) {
+	if (toolTabs->SelectedIndex == 1 && !m_xemu->IsRunning()) {
+		/* Files may be copied into LocalState through Device Portal while the
+		 * application is open. Refresh the default machine folders whenever the
+		 * Files page is opened so those files become immediately available. */
+		PrepareLocalMachineFolder("BIOS", "flash");
+		PrepareLocalMachineFolder("MCPX", "bootrom");
+		PrepareLocalMachineFolder("hard_disk", "hdd");
+	} else if (toolTabs->SelectedIndex == 6) {
 		m_logRefreshFrames = 0;
 		RefreshLogView();
 	}
@@ -429,7 +466,7 @@ void DirectXPage::StartXemu_Click(Object^, RoutedEventArgs^)
 		errorText->Text = "VLan/VPN requires a valid coordinator and 32-character room code.";
 		return;
 	}
-	if (m_xemu->Start()) { hostStatus->Text = "RUNNING"; FocusEmulatorInput(); launcherPanel->Visibility = Windows::UI::Xaml::Visibility::Collapsed; HideSystemPointer(); }
+	if (m_xemu->Start()) { hostStatus->Text = "RUNNING"; m_fpsFrames = 0; m_fpsSampleStart = std::chrono::steady_clock::now(); fpsCounter->Text = "0 FPS"; fpsOverlay->Visibility = Windows::UI::Xaml::Visibility::Visible; FocusEmulatorInput(); launcherPanel->Visibility = Windows::UI::Xaml::Visibility::Collapsed; HideSystemPointer(); }
 	else { if (m_vlan) m_vlan->Stop(); auto e = m_xemu->LastError(); errorText->Text = ref new String(std::wstring(e.begin(), e.end()).c_str()); }
 }
 
@@ -843,6 +880,15 @@ void DirectXPage::MountXboxFolder(StorageFolder^ folder, String^ tagValue,
 void DirectXPage::MountXboxFile(StorageFile^ file, String^ tagValue,
 	                            bool persist)
 {
+	bool *mountPending = tagValue == "flash" ? &m_flashMountPending :
+	                     tagValue == "bootrom" ? &m_bootromMountPending :
+	                     tagValue == "hdd" ? &m_hddMountPending : nullptr;
+	if (mountPending && *mountPending) {
+		return;
+	}
+	if (mountPending) {
+		*mountPending = true;
+	}
 	auto status = tagValue == "flash" ? flashFileStatus :
 	              tagValue == "bootrom" ? bootromFileStatus :
 	              tagValue == "hdd" ? hddFileStatus :
@@ -882,9 +928,9 @@ void DirectXPage::MountXboxFile(StorageFile^ file, String^ tagValue,
 		[this, file, tagValue](Windows::Storage::Streams::IRandomAccessStream^ stream) {
 			std::string tag = Utf8(tagValue);
 			if (!m_xemu->MountFile("/broker/" + tag, file, stream)) {
-				if (tagValue == "flash") m_flashReady = false;
-				else if (tagValue == "bootrom") m_bootromReady = false;
-				else if (tagValue == "hdd") m_hddReady = false;
+				if (tagValue == "flash") { m_flashReady = false; m_flashMountPending = false; }
+				else if (tagValue == "bootrom") { m_bootromReady = false; m_bootromMountPending = false; }
+				else if (tagValue == "hdd") { m_hddReady = false; m_hddMountPending = false; }
 				else if (tagValue == "dvd") m_dvdReady = false;
 				UpdateStartButtonState();
 				auto error = m_xemu->LastError();
@@ -893,11 +939,24 @@ void DirectXPage::MountXboxFile(StorageFile^ file, String^ tagValue,
 				toolTabs->SelectedIndex = 6;
 				return;
 			}
-			if (tagValue == "flash") m_flashReady = true;
-			else if (tagValue == "bootrom") m_bootromReady = true;
-			else if (tagValue == "hdd") m_hddReady = true;
+			if (tagValue == "flash") { m_flashReady = true; m_flashMountPending = false; }
+			else if (tagValue == "bootrom") { m_bootromReady = true; m_bootromMountPending = false; }
+			else if (tagValue == "hdd") { m_hddReady = true; m_hddMountPending = false; }
 			else if (tagValue == "dvd") m_dvdReady = true;
 			UpdateStartButtonState();
+		}).then([this, file, tagValue](task<void> result) {
+			try {
+				result.get();
+			} catch (Platform::Exception^ exception) {
+				if (tagValue == "flash") { m_flashReady = false; m_flashMountPending = false; }
+				else if (tagValue == "bootrom") { m_bootromReady = false; m_bootromMountPending = false; }
+				else if (tagValue == "hdd") { m_hddReady = false; m_hddMountPending = false; }
+				else if (tagValue == "dvd") m_dvdReady = false;
+				UpdateStartButtonState();
+				errorText->Text = "Failed to open " + file->Name + ": " +
+				                  exception->Message;
+				toolTabs->SelectedIndex = 6;
+			}
 		});
 }
 
@@ -933,6 +992,11 @@ void DirectXPage::RestorePersistedFiles()
 void DirectXPage::PrepareLocalMachineFolder(String^ folderName,
 	                                         String^ tagValue)
 {
+	if ((tagValue == "flash" && (m_flashReady || m_flashMountPending)) ||
+	    (tagValue == "bootrom" && (m_bootromReady || m_bootromMountPending)) ||
+	    (tagValue == "hdd" && (m_hddReady || m_hddMountPending))) {
+		return;
+	}
 	create_task(ApplicationData::Current->LocalFolder->CreateFolderAsync(
 		folderName, CreationCollisionOption::OpenIfExists))
 		.then([this, folderName, tagValue](StorageFolder^ folder) {
@@ -1027,4 +1091,3 @@ void DirectXPage::RestorePersistedFolder(String^ tagValue)
 			}
 		});
 }
-
