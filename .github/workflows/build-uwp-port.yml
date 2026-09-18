@@ -66,6 +66,7 @@ jobs:
             git
             make
             mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-glib2
             mingw-w64-ucrt-x86_64-libepoxy
@@ -76,6 +77,7 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-pixman
             mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-python-yaml
             mingw-w64-ucrt-x86_64-sdl3
             mingw-w64-ucrt-x86_64-xxhash
             mingw-w64-ucrt-x86_64-zstd
