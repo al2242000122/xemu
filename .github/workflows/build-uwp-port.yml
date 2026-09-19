@@ -50,6 +50,16 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Fetch upstream xemu tags
+        shell: bash
+        run: |
+          git remote add upstream https://github.com/xemu-project/xemu.git
+          git fetch upstream '+refs/tags/*:refs/tags/*' --force
+          echo "Available xemu tags:"
+          git tag --list 'v*' --sort=-version:refname | head -n 10
+          echo "Version:"
+          git describe --tags --match 'v*' --always
+
       - name: Check out SDL3_UWP
         uses: actions/checkout@v4
         with:
