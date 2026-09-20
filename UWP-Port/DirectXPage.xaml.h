@@ -67,6 +67,9 @@ namespace UWP_Port
 		bool SaveSettings(bool saveNetwork);
 		void SelectFile_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void SelectFolder_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void RefreshLocalGames_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void MountLocalGame_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void RefreshLocalGames();
 		void MountXboxFile(Windows::Storage::StorageFile^ file,
 		                   Platform::String^ tagValue, bool persist);
 		void RestorePersistedFiles();

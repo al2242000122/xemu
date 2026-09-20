@@ -58,7 +58,13 @@ jobs:
           echo "Available xemu tags:"
           git tag --list 'v*' --sort=-version:refname | head -n 10
           echo "Version:"
-          git describe --tags --match 'v*' --always
+          if git describe --tags --match 'v*' >/dev/null 2>&1; then
+            git describe --tags --match 'v*'
+          else
+            echo "No reachable v* tag on the UWP branch; using a local CI-only fallback tag."
+            git tag -f v0.0.0 HEAD
+            git describe --tags --match 'v*'
+          fi
 
       - name: Check out SDL3_UWP
         uses: actions/checkout@v4
@@ -94,16 +100,25 @@ jobs:
             mingw-w64-ucrt-x86_64-xxhash
             mingw-w64-ucrt-x86_64-zstd
 
+      - name: Locate MSYS2 tools
+        shell: msys2 {0}
+        run: |
+          echo "MSYS2_USR_BIN=$(cygpath -w /usr/bin)" >> "$GITHUB_ENV"
+          echo "MSYS2_UCRT64_BIN=$(cygpath -w /ucrt64/bin)" >> "$GITHUB_ENV"
+          echo "MSYS2_UCRT64_ROOT=$(cygpath -w /ucrt64)" >> "$GITHUB_ENV"
+
       - name: Configure MSVC x64 environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      - name: Add build tools to PATH
+      - name: Select hosted Windows Python
         shell: pwsh
         run: |
-          "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "C:\msys64\ucrt64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $python = (Get-Command python.exe -All | Where-Object { $_.Source -notlike '*msys64*' } | Select-Object -First 1).Source
+          if (-not $python) { throw "Could not locate the GitHub-hosted Windows Python." }
+          "HOST_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Hosted Python: $python"
 
       - name: Build SDL3_UWP
         shell: pwsh
@@ -134,6 +149,12 @@ jobs:
             --disable-docs \
             --audio-drv-list=sdl
 
+      - name: Verify xemu version header generator
+        shell: pwsh
+        run: |
+          python scripts\xemu-version-uwp.py > xemu-version-test.h
+          Get-Content xemu-version-test.h
+
       - name: Build and strip xemu UWP DLL
         shell: msys2 {0}
         run: |
@@ -154,12 +175,23 @@ jobs:
 
       - name: Install Mesa build Python dependencies
         shell: pwsh
-        run: python -m pip install --disable-pip-version-check meson mako packaging pyyaml
+        run: |
+          Write-Host "Using Python: $env:HOST_PYTHON"
+          & $env:HOST_PYTHON -m pip install --disable-pip-version-check meson mako packaging pyyaml
 
       - name: Configure Mesa UWP D3D12
         shell: pwsh
         run: |
-          meson setup build-uwp\mesa thirdparty\mesa `
+          # Keep MSVC first, expose only the MSYS tools Mesa needs, and force
+          # Mesa/Mako to use the hosted Windows Python rather than MSYS2 Python.
+          $hostPythonDir = Split-Path -Parent $env:HOST_PYTHON
+          $parts = @($env:PATH -split ';' | Where-Object {
+            $_ -and ($_ -ine $env:MSYS2_USR_BIN) -and ($_ -ine $env:MSYS2_UCRT64_BIN) -and ($_ -ine $hostPythonDir)
+          })
+          $env:PATH = ((@($hostPythonDir) + $parts + @($env:MSYS2_USR_BIN)) -join ';')
+          Write-Host "Hosted Python: $env:HOST_PYTHON"
+          Write-Host "MSVC linker: $((Get-Command link.exe).Source)"
+          & $env:HOST_PYTHON -m mesonbuild.mesonmain setup build-uwp\mesa thirdparty\mesa `
             --native-file configs\meson\mesa-uwp-x64.ini `
             --buildtype release `
             --default-library static `
@@ -185,7 +217,16 @@ jobs:
       - name: Build Mesa UWP D3D12
         shell: pwsh
         run: |
-          meson compile -C build-uwp\mesa
+          $hostPythonDir = Split-Path -Parent $env:HOST_PYTHON
+          $parts = @($env:PATH -split ';' | Where-Object {
+            $_ -and ($_ -ine $env:MSYS2_USR_BIN) -and ($_ -ine $env:MSYS2_UCRT64_BIN) -and ($_ -ine $hostPythonDir)
+          })
+          $env:PATH = ((@($hostPythonDir) + $parts + @($env:MSYS2_USR_BIN)) -join ';')
+          Write-Host "MSVC linker: $((Get-Command link.exe).Source)"
+          # Build the renderer DLL targets explicitly. Mesa's current
+          # Windows/UWP configuration does not place these shared libraries
+          # in Ninja's default target set on this runner.
+          & $env:HOST_PYTHON -m mesonbuild.mesonmain compile -C build-uwp\mesa --verbose opengl32 gallium_wgl
           $required = @(
             'build-uwp\mesa\src\gallium\targets\libgl-gdi\opengl32.dll',
             'build-uwp\mesa\src\gallium\targets\wgl\gallium_wgl.dll'

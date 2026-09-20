@@ -42,6 +42,15 @@
             <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select hard disk" Tag="hdd" Click="SelectFile_Click"/><TextBlock x:Name="hddFileStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
             <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select EEPROM" Tag="eeprom" Click="SelectFile_Click"/><TextBlock x:Name="eepromFileStatus" Grid.Column="1" Text="Automatic" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
             <Grid ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button Content="Select DVD/XISO" Tag="dvd" Click="SelectFile_Click"/><TextBlock x:Name="dvdFileStatus" Grid.Column="1" Text="Not selected" Foreground="#FFAAB8C5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid>
+            <TextBlock Text="LocalState games" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource Accent}" Margin="0,10,0,0"/>
+            <TextBlock Text="XISO files copied to LocalState\\games can be mounted directly without the Windows file picker." Foreground="#FFAAB8C5" TextWrapping="Wrap"/>
+            <Grid ColumnSpacing="10">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+              <ComboBox x:Name="localGamesCombo" PlaceholderText="No local XISO files found" MinWidth="360"/>
+              <Button Grid.Column="1" Content="Refresh" Click="RefreshLocalGames_Click"/>
+              <Button x:Name="mountLocalGameButton" Grid.Column="2" Content="Mount selected" Click="MountLocalGame_Click" IsEnabled="False"/>
+            </Grid>
+            <TextBlock x:Name="localGamesStatus" Text="Open the Files tab or press Refresh to scan LocalState\\games." Foreground="#FFAAB8C5" TextWrapping="Wrap"/>
             <TextBlock x:Name="requiredFilesStatus" Text="Select BIOS, MCPX, and hard disk to start. DVD/XISO is optional." Foreground="#FFFFC857" TextWrapping="Wrap" Margin="0,14,0,0"/>
             <Button x:Name="startButton" Content="▶ Start xemu" Background="{StaticResource Accent}" Click="StartXemu_Click" IsEnabled="False" Margin="0,4,0,20"/>
           </StackPanel>
