@@ -171,6 +171,12 @@ jobs:
       - name: Configure Mesa UWP D3D12
         shell: pwsh
         run: |
+          # Keep MSYS2 tools available, but make sure MSVC link.exe wins over
+          # C:\msys64\usr\bin\link.exe (GNU coreutils).
+          $parts = @($env:PATH -split ';' | Where-Object { $_ -and ($_ -ine 'C:\msys64\usr\bin') })
+          $env:PATH = (($parts + 'C:\msys64\usr\bin') -join ';')
+          Write-Host "link.exe resolution:"
+          where.exe link
           meson setup build-uwp\mesa thirdparty\mesa `
             --native-file configs\meson\mesa-uwp-x64.ini `
             --buildtype release `
@@ -197,6 +203,10 @@ jobs:
       - name: Build Mesa UWP D3D12
         shell: pwsh
         run: |
+          $parts = @($env:PATH -split ';' | Where-Object { $_ -and ($_ -ine 'C:\msys64\usr\bin') })
+          $env:PATH = (($parts + 'C:\msys64\usr\bin') -join ';')
+          Write-Host "link.exe resolution:"
+          where.exe link
           meson compile -C build-uwp\mesa
           $required = @(
             'build-uwp\mesa\src\gallium\targets\libgl-gdi\opengl32.dll',
