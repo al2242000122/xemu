@@ -112,11 +112,13 @@ jobs:
         with:
           arch: x64
 
-      - name: Add build tools to PATH
+      - name: Select hosted Windows Python
         shell: pwsh
         run: |
-          $env:MSYS2_USR_BIN | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          $env:MSYS2_UCRT64_BIN | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $python = (Get-Command python.exe -All | Where-Object { $_.Source -notlike '*msys64*' } | Select-Object -First 1).Source
+          if (-not $python) { throw "Could not locate the GitHub-hosted Windows Python." }
+          "HOST_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Hosted Python: $python"
 
       - name: Build SDL3_UWP
         shell: pwsh
@@ -174,21 +176,25 @@ jobs:
       - name: Install Mesa build Python dependencies
         shell: pwsh
         run: |
-          $python = (Get-Command python.exe -All | Where-Object { $_.Source -notlike '*msys64*' } | Select-Object -First 1).Source
-          if (-not $python) { throw "Could not locate the GitHub-hosted Windows Python." }
-          Write-Host "Using Python: $python"
-          & $python -m pip install --disable-pip-version-check meson mako packaging pyyaml
+          Write-Host "Using Python: $env:HOST_PYTHON"
+          & $env:HOST_PYTHON -m pip install --disable-pip-version-check meson mako packaging pyyaml
 
       - name: Configure Mesa UWP D3D12
         shell: pwsh
         run: |
-          # Keep MSYS2 tools available, but make sure MSVC link.exe wins over
-          # C:\msys64\usr\bin\link.exe (GNU coreutils).
-          $parts = @($env:PATH -split ';' | Where-Object { $_ -and ($_ -ine $env:MSYS2_USR_BIN) -and ($_ -ine 'C:\msys64\usr\bin') })
-          $env:PATH = (($parts + $env:MSYS2_USR_BIN) -join ';')
+          # Keep MSVC first, expose only the MSYS tools Mesa needs, and force
+          # Mesa/Mako to use the hosted Windows Python rather than MSYS2 Python.
+          $hostPythonDir = Split-Path -Parent $env:HOST_PYTHON
+          $parts = @($env:PATH -split ';' | Where-Object {
+            $_ -and ($_ -ine $env:MSYS2_USR_BIN) -and ($_ -ine $env:MSYS2_UCRT64_BIN) -and ($_ -ine $hostPythonDir)
+          })
+          $env:PATH = (($hostPythonDir + $parts + $env:MSYS2_USR_BIN) -join ';')
+          $env:PKG_CONFIG = Join-Path $env:MSYS2_UCRT64_BIN 'pkg-config.exe'
+          Write-Host "Python resolution:"
+          where.exe python
           Write-Host "link.exe resolution:"
           where.exe link
-          meson setup build-uwp\mesa thirdparty\mesa `
+          & $env:HOST_PYTHON -m mesonbuild.mesonmain setup build-uwp\mesa thirdparty\mesa `
             --native-file configs\meson\mesa-uwp-x64.ini `
             --buildtype release `
             --default-library static `
@@ -214,14 +220,18 @@ jobs:
       - name: Build Mesa UWP D3D12
         shell: pwsh
         run: |
-          $parts = @($env:PATH -split ';' | Where-Object { $_ -and ($_ -ine 'C:\msys64\usr\bin') })
-          $env:PATH = (($parts + 'C:\msys64\usr\bin') -join ';')
+          $hostPythonDir = Split-Path -Parent $env:HOST_PYTHON
+          $parts = @($env:PATH -split ';' | Where-Object {
+            $_ -and ($_ -ine $env:MSYS2_USR_BIN) -and ($_ -ine $env:MSYS2_UCRT64_BIN) -and ($_ -ine $hostPythonDir)
+          })
+          $env:PATH = (($hostPythonDir + $parts + $env:MSYS2_USR_BIN) -join ';')
+          $env:PKG_CONFIG = Join-Path $env:MSYS2_UCRT64_BIN 'pkg-config.exe'
           Write-Host "link.exe resolution:"
           where.exe link
           # Build the renderer DLL targets explicitly. Mesa's current
           # Windows/UWP configuration does not place these shared libraries
           # in Ninja's default target set on this runner.
-          meson compile -C build-uwp\mesa --verbose opengl32 gallium_wgl
+          & $env:HOST_PYTHON -m mesonbuild.mesonmain compile -C build-uwp\mesa --verbose opengl32 gallium_wgl
           $required = @(
             'build-uwp\mesa\src\gallium\targets\libgl-gdi\opengl32.dll',
             'build-uwp\mesa\src\gallium\targets\wgl\gallium_wgl.dll'
