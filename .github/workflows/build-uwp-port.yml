@@ -100,6 +100,12 @@ jobs:
             mingw-w64-ucrt-x86_64-xxhash
             mingw-w64-ucrt-x86_64-zstd
 
+      - name: Locate MSYS2 tools
+        shell: msys2 {0}
+        run: |
+          echo "MSYS2_USR_BIN=$(cygpath -w /usr/bin)" >> "$GITHUB_ENV"
+          echo "MSYS2_UCRT64_BIN=$(cygpath -w /ucrt64/bin)" >> "$GITHUB_ENV"
+
       - name: Configure MSVC x64 environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -173,8 +179,8 @@ jobs:
         run: |
           # Keep MSYS2 tools available, but make sure MSVC link.exe wins over
           # C:\msys64\usr\bin\link.exe (GNU coreutils).
-          $parts = @($env:PATH -split ';' | Where-Object { $_ -and ($_ -ine 'C:\msys64\usr\bin') })
-          $env:PATH = (($parts + 'C:\msys64\usr\bin') -join ';')
+          $parts = @($env:PATH -split ';' | Where-Object { $_ -and ($_ -ine $env:MSYS2_USR_BIN) -and ($_ -ine 'C:\msys64\usr\bin') })
+          $env:PATH = (($parts + $env:MSYS2_USR_BIN) -join ';')
           Write-Host "link.exe resolution:"
           where.exe link
           meson setup build-uwp\mesa thirdparty\mesa `
