@@ -894,9 +894,13 @@ void DirectXPage::RefreshLocalGames()
 			if (found > 0) {
 				localGamesCombo->SelectedIndex = 0;
 				mountLocalGameButton->IsEnabled = true;
-				localGamesStatus->Text = found == 1 ?
-					"1 local XISO found." :
-					found.ToString() + " local XISO files found.";
+				if (found == 1) {
+					localGamesStatus->Text = "1 local XISO found.";
+				} else {
+					wchar_t countText[64];
+					swprintf_s(countText, L"%u local XISO files found.", found);
+					localGamesStatus->Text = ref new String(countText);
+				}
 			} else {
 				localGamesStatus->Text = "No .iso or .xiso files found in LocalState\\games.";
 			}
