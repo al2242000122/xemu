@@ -58,7 +58,13 @@ jobs:
           echo "Available xemu tags:"
           git tag --list 'v*' --sort=-version:refname | head -n 10
           echo "Version:"
-          git describe --tags --match 'v*' --always
+          if git describe --tags --match 'v*' >/dev/null 2>&1; then
+            git describe --tags --match 'v*'
+          else
+            echo "No reachable v* tag on the UWP branch; using a local CI-only fallback tag."
+            git tag -f v0.0.0 HEAD
+            git describe --tags --match 'v*'
+          fi
 
       - name: Check out SDL3_UWP
         uses: actions/checkout@v4
