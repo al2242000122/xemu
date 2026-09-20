@@ -191,8 +191,15 @@ endforeach
 # xemu Version
 ###########################################
 
-xemu_version_cmd = [find_program('scripts/xemu-version.sh'),
-                    meson.current_source_dir()]
+if get_option('uwp')
+  python_mod = import('python')
+  python = python_mod.find_installation()
+  xemu_version_cmd = [python, files('scripts/xemu-version-uwp.py'),
+                      meson.current_source_dir()]
+else
+  xemu_version_cmd = [find_program('scripts/xemu-version.sh'),
+                      meson.current_source_dir()]
+endif
 xemu_version = custom_target('xemu-version-macro.h',
                              output: 'xemu-version-macro.h',
                              command: xemu_version_cmd,
