@@ -173,7 +173,11 @@ jobs:
 
       - name: Install Mesa build Python dependencies
         shell: pwsh
-        run: python -m pip install --disable-pip-version-check meson mako packaging pyyaml
+        run: |
+          $python = (Get-Command python.exe -All | Where-Object { $_.Source -notlike '*msys64*' } | Select-Object -First 1).Source
+          if (-not $python) { throw "Could not locate the GitHub-hosted Windows Python." }
+          Write-Host "Using Python: $python"
+          & $python -m pip install --disable-pip-version-check meson mako packaging pyyaml
 
       - name: Configure Mesa UWP D3D12
         shell: pwsh
