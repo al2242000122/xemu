@@ -141,10 +141,10 @@ jobs:
             --audio-drv-list=sdl
 
       - name: Verify xemu version header generator
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          bash scripts/xemu-version.sh "$PWD" > xemu-version-test.h
-          cat xemu-version-test.h
+          python scripts\xemu-version-uwp.py > xemu-version-test.h
+          Get-Content xemu-version-test.h
 
       - name: Build and strip xemu UWP DLL
         shell: msys2 {0}
