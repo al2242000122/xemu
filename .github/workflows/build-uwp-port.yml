@@ -207,7 +207,10 @@ jobs:
           $env:PATH = (($parts + 'C:\msys64\usr\bin') -join ';')
           Write-Host "link.exe resolution:"
           where.exe link
-          meson compile -C build-uwp\mesa
+          # Build the renderer DLL targets explicitly. Mesa's current
+          # Windows/UWP configuration does not place these shared libraries
+          # in Ninja's default target set on this runner.
+          meson compile -C build-uwp\mesa --verbose opengl32 gallium_wgl
           $required = @(
             'build-uwp\mesa\src\gallium\targets\libgl-gdi\opengl32.dll',
             'build-uwp\mesa\src\gallium\targets\wgl\gallium_wgl.dll'
