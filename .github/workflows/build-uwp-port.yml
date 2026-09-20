@@ -105,6 +105,7 @@ jobs:
         run: |
           echo "MSYS2_USR_BIN=$(cygpath -w /usr/bin)" >> "$GITHUB_ENV"
           echo "MSYS2_UCRT64_BIN=$(cygpath -w /ucrt64/bin)" >> "$GITHUB_ENV"
+          echo "MSYS2_UCRT64_ROOT=$(cygpath -w /ucrt64)" >> "$GITHUB_ENV"
 
       - name: Configure MSVC x64 environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -114,8 +115,8 @@ jobs:
       - name: Add build tools to PATH
         shell: pwsh
         run: |
-          "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "C:\msys64\ucrt64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:MSYS2_USR_BIN | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:MSYS2_UCRT64_BIN | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build SDL3_UWP
         shell: pwsh
