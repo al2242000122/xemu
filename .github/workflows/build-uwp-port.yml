@@ -189,7 +189,6 @@ jobs:
             $_ -and ($_ -ine $env:MSYS2_USR_BIN) -and ($_ -ine $env:MSYS2_UCRT64_BIN) -and ($_ -ine $hostPythonDir)
           })
           $env:PATH = ((@($hostPythonDir) + $parts + @($env:MSYS2_USR_BIN)) -join ';')
-          $env:PKG_CONFIG = Join-Path $env:MSYS2_UCRT64_BIN 'pkg-config.exe'
           Write-Host "Hosted Python: $env:HOST_PYTHON"
           Write-Host "MSVC linker: $((Get-Command link.exe).Source)"
           & $env:HOST_PYTHON -m mesonbuild.mesonmain setup build-uwp\mesa thirdparty\mesa `
@@ -223,7 +222,6 @@ jobs:
             $_ -and ($_ -ine $env:MSYS2_USR_BIN) -and ($_ -ine $env:MSYS2_UCRT64_BIN) -and ($_ -ine $hostPythonDir)
           })
           $env:PATH = ((@($hostPythonDir) + $parts + @($env:MSYS2_USR_BIN)) -join ';')
-          $env:PKG_CONFIG = Join-Path $env:MSYS2_UCRT64_BIN 'pkg-config.exe'
           Write-Host "MSVC linker: $((Get-Command link.exe).Source)"
           # Build the renderer DLL targets explicitly. Mesa's current
           # Windows/UWP configuration does not place these shared libraries
