@@ -350,6 +350,7 @@ void DirectXPage::NavigationButton_Click(Object^ sender, RoutedEventArgs^)
 		PrepareLocalMachineFolder("BIOS", "flash");
 		PrepareLocalMachineFolder("MCPX", "bootrom");
 		PrepareLocalMachineFolder("hard_disk", "hdd");
+		RefreshLocalGames();
 	} else if (toolTabs->SelectedIndex == 6) {
 		m_logRefreshFrames = 0;
 		RefreshLogView();
@@ -860,6 +861,80 @@ void DirectXPage::SelectFolder_Click(Object^ sender, RoutedEventArgs^)
 		});
 }
 
+void DirectXPage::RefreshLocalGames_Click(Object^, RoutedEventArgs^)
+{
+	RefreshLocalGames();
+}
+
+void DirectXPage::RefreshLocalGames()
+{
+	localGamesCombo->Items->Clear();
+	localGamesCombo->SelectedIndex = -1;
+	mountLocalGameButton->IsEnabled = false;
+	localGamesStatus->Text = "Scanning LocalState\\games...";
+
+	create_task(ApplicationData::Current->LocalFolder->CreateFolderAsync(
+		"games", CreationCollisionOption::OpenIfExists))
+		.then([this](StorageFolder^ folder) {
+			return create_task(folder->GetFilesAsync());
+		}).then([this](Windows::Foundation::Collections::IVectorView<StorageFile^>^ files) {
+			unsigned int found = 0;
+			for (unsigned int i = 0; i < files->Size; ++i) {
+				auto file = files->GetAt(i);
+				auto type = file->FileType;
+				if (!type || (_wcsicmp(type->Data(), L".iso") != 0 &&
+				              _wcsicmp(type->Data(), L".xiso") != 0)) {
+					continue;
+				}
+				auto item = ref new ComboBoxItem();
+				item->Content = file->Name;
+				localGamesCombo->Items->Append(item);
+				++found;
+			}
+			if (found > 0) {
+				localGamesCombo->SelectedIndex = 0;
+				mountLocalGameButton->IsEnabled = true;
+				localGamesStatus->Text = found == 1 ?
+					"1 local XISO found." :
+					found.ToString() + " local XISO files found.";
+			} else {
+				localGamesStatus->Text = "No .iso or .xiso files found in LocalState\\games.";
+			}
+		}).then([this](task<void> result) {
+			try {
+				result.get();
+			} catch (Platform::Exception^ exception) {
+				localGamesStatus->Text = "Failed to scan LocalState\\games: " +
+				                         exception->Message;
+			}
+		});
+}
+
+void DirectXPage::MountLocalGame_Click(Object^, RoutedEventArgs^)
+{
+	if (localGamesCombo->SelectedIndex < 0) {
+		return;
+	}
+	auto item = safe_cast<ComboBoxItem^>(localGamesCombo->SelectedItem);
+	auto fileName = safe_cast<String^>(item->Content);
+
+	create_task(ApplicationData::Current->LocalFolder->CreateFolderAsync(
+		"games", CreationCollisionOption::OpenIfExists))
+		.then([fileName](StorageFolder^ folder) {
+			return create_task(folder->GetFileAsync(fileName));
+		}).then([this](StorageFile^ file) {
+			MountXboxFile(file, "dvd", false);
+		}).then([this](task<void> result) {
+			try {
+				result.get();
+			} catch (Platform::Exception^ exception) {
+				errorText->Text = "Failed to mount LocalState game: " +
+				                  exception->Message;
+				toolTabs->SelectedIndex = 6;
+			}
+		});
+}
+
 void DirectXPage::MountXboxFolder(StorageFolder^ folder, String^ tagValue,
 	                               bool persist)
 {
@@ -987,6 +1062,7 @@ void DirectXPage::RestorePersistedFiles()
 	} else {
 		MountDefaultGamesFolder();
 	}
+	RefreshLocalGames();
 }
 
 void DirectXPage::PrepareLocalMachineFolder(String^ folderName,
